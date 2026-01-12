@@ -89,15 +89,15 @@ def get_data(filters):
 					""".format(project_budget),as_dict= True)
 	if len(project_budget_details)>0:
 		report_data.append({
-			"budget_description" : "Investment",
+			"budget_description" : "<b>Investment</b>",
 			"total_budget" : project_budget_details[0].startup_investment,
 		})
 		report_data.append({
-			"budget_description" : "Capex",
+			"budget_description" : "<b>Capex</b>",
 			"total_budget" : project_budget_details[0].capex,
 		})
 		report_data.append({
-			"budget_description" : "Operational Expenses",
+			"budget_description" : "<b>Operational Expenses</b>",
 			"total_budget" : project_budget_details[0].total_expenses,
 		})
 		for row in project_budget_details:
@@ -136,22 +136,26 @@ def get_data(filters):
 				for row in fiscal_year_wise_allocation_data:
 					fiscal_year_field_name = cstr(row.fiscal_year).replace("-","_")
 					for report_row in report_data:
-						if report_row.get("budget_description") == "Investment":
+						if report_row.get("budget_description") == "<b>Investment</b>":
 							print(fiscal_year_field_name,"=======================fiscal_year_field_name")
 							report_row[fiscal_year_field_name] = row.startup_investment
-						elif report_row.get("budget_description") == "Capex":
+						elif report_row.get("budget_description") == "<b>Capex</b>":
 							report_row[fiscal_year_field_name] = row.capex
-						elif report_row.get("budget_description") == "Operational Expenses":
+						elif report_row.get("budget_description") == "<b>Operational Expenses</b>":
 							report_row[fiscal_year_field_name] = row.total_expenses
 						elif report_row.get("budget_description") == row.description:
 							report_row[fiscal_year_field_name] = row.amount
+							report_row["indent"]=1
 						
 						if fiscal_year_field_name not in fiscal_year_list:
 							fiscal_year_list.append(fiscal_year_field_name)
 
 		for ele in report_data:
+			print(ele,'===ele')
+			print(type(ele),'type')
 			total_allocated = 0
 			for year in fiscal_year_list:
+				print(year,"----year")
 				total_allocated = total_allocated + ele.get(year)
 			ele["total_allocated"] = total_allocated
 			ele["variance_in_allocation"] = ele.get("total_budget") - total_allocated
