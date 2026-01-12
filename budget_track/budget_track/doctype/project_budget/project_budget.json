@@ -1,6 +1,5 @@
 {
  "actions": [],
- "allow_rename": 1,
  "autoname": "field:parent_cost_center_for_project",
  "creation": "2025-11-19 15:44:12.284021",
  "doctype": "DocType",
@@ -147,7 +146,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-19 16:05:01.877212",
+ "modified": "2026-01-12 12:36:44.136051",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Project Budget",
