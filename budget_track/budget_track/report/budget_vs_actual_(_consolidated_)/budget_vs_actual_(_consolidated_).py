@@ -329,6 +329,7 @@ def get_data(filters):
 
 	capex_data.append({"description":"<b>Capex</b>"})
 	project_budget_list = []
+	account_list = []
 	company_default_capex_account = company.custom_default_budget_capex_account
 
 	total_capex_budget = 0
@@ -614,16 +615,16 @@ def get_data(filters):
 								income_report_row["description"] = income_row.get("account")
 								income_report_row["indent"] = 1
 								income_report_row["project_budget"] = project_budget_details[0].name
-								income_report_row["budget"] = income
-								income_report_row["total_receipt"] = 0
+								income_report_row["budget"] = 0
+								income_report_row["total_receipt"] = income
 
 								income_data.append(income_report_row)
 								account_list.append(income_row.get("account"))
 							else :
 								for existing_income_row in income_data:
 									if existing_income_row.get("description") == income_row.get("account"):
-										income = existing_income_row.get("budget") + (income_row.get("credit") - income_row.get("debit"))
-										existing_income_row["budget"] = income
+										income = existing_income_row.get("total_receipt") + (income_row.get("credit") - income_row.get("debit"))
+										existing_income_row["total_receipt"] = income
 										total_income = total_income + (income_row.get("credit") - income_row.get("debit"))
 
 				else:

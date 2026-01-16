@@ -1,5 +1,5 @@
 {
- "add_total_row": 0,
+ "add_total_row": 1,
  "add_translate_data": 0,
  "columns": [],
  "creation": "2025-12-22 17:34:23.212821",
@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letter_head": null,
- "modified": "2025-12-22 17:34:23.212821",
+ "modified": "2026-01-16 09:33:49.026120",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Budget Vs Actual ( Consolidated )",
