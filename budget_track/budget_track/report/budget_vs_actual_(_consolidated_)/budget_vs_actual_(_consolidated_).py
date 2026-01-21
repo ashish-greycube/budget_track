@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import getdate, cstr, today
+from frappe.utils import getdate, cstr, today, flt
 from erpnext.accounts.report.general_ledger.general_ledger import execute as gl_execute
 
 
@@ -64,12 +64,14 @@ def get_columns(filters):
 			"fieldname": "spent_as_percent_against_budget",
 			"label":_("Spent as % against Budget"),
 			"fieldtype": "Percent",
+			"precision": 2,
 			"width": 200
 		},
 		{
 			"fieldname": "spent_as_percent_against_receipt",
 			"label":_("Spent as % against Receipt"),
 			"fieldtype": "Percent",
+			"precision": 2,
 			"width": 200
 		},	
 	]
@@ -77,10 +79,21 @@ def get_columns(filters):
 def get_data(filters):
 	project_budget = filters.get("project_budget")
 
+	# Initializing Total Variables
+	total_budget = 0
+	total_receipt_of_all_type = 0
+	total_actual = 0
+	total_budget_variance = 0
+	total_receipt_variance = 0
+	total_spent_as_percent_against_budget = 0
+	total_spent_as_percent_against_receipt = 0
+
 	total_operational_expense_budget = 0
 	total_operational_expense_receipt = 0
 	total_operational_expense_actual = 0
-	total_consumption = 0
+	total_consumption_consider_for_overhead = 0
+	account_list = []
+	pb_list = []
 
 	report_data = []
 	expense_data = []
@@ -90,10 +103,14 @@ def get_data(filters):
 	overhead_data = []
 	advances_data = []
 
+	data_for_overhead = []
+	total_expenses_for_overhead = 0
+
 	# Fetch Data for Operational Expenses 
 	expense_data.append({"description":"<b>Operational Expenses</b>"})
 	if len(project_budget)>0:
 		for project in project_budget:
+			total_expenses_for_overhead = 0
 			project_budget_details = frappe.db.sql(f"""
 							SELECT
 								tpb.name,
@@ -128,69 +145,121 @@ def get_data(filters):
 				total_operational_expense_receipt = total_operational_expense_receipt + expense_receipt_amount
 				
 				for row in project_budget_details:
-					report_row = {}
-					report_row["description"] = row.description
-					report_row["indent"] = 1
-					report_row["project_budget"] = row.name
-					report_row["budget"] = row.amount
-					report_row["project_start_date"] = row.project_start_date
+					if row.description not in account_list:
+						report_row = {}
+						report_row["description"] = row.description
+						report_row["indent"] = 1
+						report_row["project_budget"] = row.name
+						report_row["budget"] = row.amount
+						report_row["project_start_date"] = row.project_start_date
 
-					# Calculating Total Receipt For Operational Expense Cost Center Wise
+						# Calculating Total Receipt For Operational Expense Cost Center Wise
 
-					cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
-					report_row["total_receipt"] = cost_center_wise_receipt
+						cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
+						report_row["total_receipt"] = cost_center_wise_receipt
 
-					# Calculating Actual Expense For Operational Expense Cost Center Wise
+						# Calculating Actual Expense For Operational Expense Cost Center Wise
 
-					company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
-					filters_of_expenses_for_general_ledger = frappe._dict({
-						"company": row.company,
-						"from_date": row.project_start_date,
-						"to_date": getdate(today()),
-						"account":[company_default_expense_account],
-						"cost_center":[row.cost_center_for_expense],
-						"group_by": group_by,
-						"include_dimensions": include_dimensions,
-						"include_default_book_entries": include_default_book_entries
-					})
+						company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
+						filters_of_expenses_for_general_ledger = frappe._dict({
+							"company": row.company,
+							"from_date": row.project_start_date,
+							"to_date": getdate(today()),
+							"account":[company_default_expense_account],
+							"cost_center":[row.cost_center_for_expense],
+							"group_by": group_by,
+							"include_dimensions": include_dimensions,
+							"include_default_book_entries": include_default_book_entries
+						})
 
-					gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
-					if len(gl_report_data_for_expenses)>0:
-						total_debit = 0
-						total_credit = 0
-						for expense_row in gl_report_data_for_expenses[1]:
-							if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-								if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
-									total_debit += expense_row.get("debit")
-									total_credit += expense_row.get("credit")
-						total_expense = total_debit - total_credit
-					else:
-						total_expense = 0
-					report_row["actual_expense"] = total_expense
-					total_operational_expense_actual = total_operational_expense_actual + total_expense
+						gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
+						if len(gl_report_data_for_expenses)>0:
+							total_debit = 0
+							total_credit = 0
+							for expense_row in gl_report_data_for_expenses[1]:
+								if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
+									if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
+										total_debit += expense_row.get("debit")
+										total_credit += expense_row.get("credit")
+							total_expense = total_debit - total_credit
+						else:
+							total_expense = 0
+						report_row["actual_expense"] = total_expense
+						total_operational_expense_actual = total_operational_expense_actual + total_expense
+						total_expenses_for_overhead = total_expenses_for_overhead + total_expense
 
-					# Calculating Variance and Percentages 
+						# Calculating Variance and Percentages 
 
-					budget_variance = report_row["budget"] - report_row["actual_expense"]
-					receipt_variance = report_row["total_receipt"] - report_row["actual_expense"]
-					report_row["budget_variance"] = budget_variance
-					report_row["receipt_variance"] = receipt_variance
+						budget_variance = report_row["budget"] - report_row["actual_expense"]
+						receipt_variance = report_row["total_receipt"] - report_row["actual_expense"]
+						report_row["budget_variance"] = budget_variance
+						report_row["receipt_variance"] = receipt_variance
 
-					if report_row["budget"] > 0:
-						spent_as_percent_against_budget = (report_row["actual_expense"] * 100) / report_row["budget"]
-					else:
-						spent_as_percent_against_budget = 0
-					report_row["spent_as_percent_against_budget"] = spent_as_percent_against_budget
+						if report_row["budget"] > 0:
+							spent_as_percent_against_budget = flt((report_row["actual_expense"] * 100) / report_row["budget"] , 2)
+						else:
+							spent_as_percent_against_budget = 0
+						report_row["spent_as_percent_against_budget"] = spent_as_percent_against_budget
 
-					if report_row["total_receipt"] > 0:
-						spent_as_percent_against_receipt = (report_row["actual_expense"] * 100) / report_row["total_receipt"]
-					else:
-						spent_as_percent_against_receipt = 0
-					report_row["spent_as_percent_against_receipt"] = spent_as_percent_against_receipt
+						if report_row["total_receipt"] > 0:
+							spent_as_percent_against_receipt = flt((report_row["actual_expense"] * 100) / report_row["total_receipt"], 2)
+						else:
+							spent_as_percent_against_receipt = 0
+						report_row["spent_as_percent_against_receipt"] = spent_as_percent_against_receipt
 
-					expense_data.append(report_row)
+						expense_data.append(report_row)
+						account_list.append(row.description)
+						if row.name not in pb_list:
+							pb_list.append(row.name)
+					else :
+						for existing_expense_row in expense_data:
+							if existing_expense_row.get("description") == row.description:
+								if row.name not in pb_list:
+									pb_list.append(row.name)
+								existing_expense_row["project_budget"] = ", ".join(pb_list)
+								existing_expense_row["budget"] = existing_expense_row.get("budget") + row.amount
 
+								# Calculating Total Receipt For Operational Expense Cost Center Wise
 
+								cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
+								existing_expense_row["total_receipt"] = existing_expense_row.get("total_receipt") + cost_center_wise_receipt
+
+								# Calculating Actual Expense For Operational Expense Cost Center Wise
+
+								company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
+								filters_of_expenses_for_general_ledger = frappe._dict({
+									"company": row.company,
+									"from_date": row.project_start_date,
+									"to_date": getdate(today()),
+									"account":[company_default_expense_account],
+									"cost_center":[row.cost_center_for_expense],
+									"group_by": group_by,
+									"include_dimensions": include_dimensions,
+									"include_default_book_entries": include_default_book_entries
+								})
+
+								gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
+								if len(gl_report_data_for_expenses)>0:
+									total_debit = 0
+									total_credit = 0
+									for expense_row in gl_report_data_for_expenses[1]:
+										if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
+											if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
+												total_debit += expense_row.get("debit")
+												total_credit += expense_row.get("credit")
+									total_expense = total_debit - total_credit
+								else:
+									total_expense = 0
+								existing_expense_row["actual_expense"] = existing_expense_row.get("actual_expense") + total_expense 
+								total_expenses_for_overhead = total_expenses_for_overhead + total_expense
+								total_operational_expense_actual = total_operational_expense_actual + total_expense
+
+				data_for_overhead.append({
+					"project_budget": project_budget_details[0].name,
+					"total_expense": total_expenses_for_overhead
+				})
+
+	# Updating Operational Expense Summary Row
 	for row in expense_data:
 		if row.get("description") == "<b>Operational Expenses</b>":
 			row["budget"] = total_operational_expense_budget
@@ -198,15 +267,24 @@ def get_data(filters):
 			row["actual_expense"] = total_operational_expense_actual
 			row["budget_variance"] = total_operational_expense_budget - total_operational_expense_actual
 			row["receipt_variance"] = total_operational_expense_receipt - total_operational_expense_actual
-			total_consumption = total_consumption + total_operational_expense_actual
+			total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + total_operational_expense_actual
+			total_budget = total_budget + total_operational_expense_budget
+			total_receipt_of_all_type = total_receipt_of_all_type + total_operational_expense_receipt
+			total_actual = total_actual + total_operational_expense_actual
+			total_budget_variance = total_budget_variance + (total_operational_expense_budget - total_operational_expense_actual)
+			total_receipt_variance = total_receipt_variance + (total_operational_expense_receipt - total_operational_expense_actual)
+			
 			if total_operational_expense_budget > 0:
-				row["spent_as_percent_against_budget"] = (total_operational_expense_actual * 100) / total_operational_expense_budget
+				row["spent_as_percent_against_budget"] = flt((total_operational_expense_actual * 100) / total_operational_expense_budget, 2)
 			else:
 				row["spent_as_percent_against_budget"] = 0
 			if total_operational_expense_receipt > 0:
-				row["spent_as_percent_against_receipt"] = (total_operational_expense_actual * 100) / total_operational_expense_receipt
+				row["spent_as_percent_against_receipt"] = flt((total_operational_expense_actual * 100) / total_operational_expense_receipt, 2)
 			else:
 				row["spent_as_percent_against_receipt"] = 0
+
+			total_spent_as_percent_against_budget = total_spent_as_percent_against_budget + row["spent_as_percent_against_budget"]
+			total_spent_as_percent_against_receipt = total_spent_as_percent_against_receipt + row["spent_as_percent_against_receipt"]
 
 	
 	# Calculations for Investments 
@@ -223,9 +301,12 @@ def get_data(filters):
 	total_investment_budget = 0
 	total_investment_receipt = 0
 	total_investment_actual = 0
+	account_list = []
+	pb_list = []
 
 	if len(project_budget)>0:
 		for project in project_budget:
+			total_expenses_for_overhead = 0
 			project_budget_details = frappe.db.sql("""
 							SELECT
 								tpb.name,
@@ -264,10 +345,9 @@ def get_data(filters):
 
 				gl_report_data_for_investments = gl_execute(filters_of_investment_expense_for_general_ledger)
 				if len(gl_report_data_for_investments[1]) >0:
-					account_list = []
 					for investment_row in gl_report_data_for_investments[1]:
 						if investment_row.get("account") and investment_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-							if row.get("account") not in account_list:
+							if investment_row.get("account") not in account_list:
 								report_row = {}
 								expense = investment_row.get("debit") - investment_row.get("credit")
 								report_row["description"] = investment_row.get("account")
@@ -283,7 +363,7 @@ def get_data(filters):
 								report_row["budget_variance"] = budget_variance
 
 								if report_row["budget"] > 0:
-									spent_as_percent_against_budget = (report_row["actual_expense"] * 100) / report_row["budget"]
+									spent_as_percent_against_budget = flt((report_row["actual_expense"] * 100) / report_row["budget"], 2)
 								else:
 									spent_as_percent_against_budget = 0
 
@@ -291,22 +371,35 @@ def get_data(filters):
 
 								investment_data.append(report_row)
 								account_list.append(investment_row.get("account"))
+								if project_budget_details[0].name not in pb_list:
+									pb_list.append(project_budget_details[0].name)
+								
+								total_expenses_for_overhead = total_expenses_for_overhead + expense
 							else :
 								for existing_investment_row in investment_data:
 									if existing_investment_row.get("description") == investment_row.get("account"):
+
 										expense = existing_investment_row.get("actual_expense") + (investment_row.get("debit") - investment_row.get("credit"))
+										if expense > 0 and project_budget_details[0].name not in pb_list:
+											pb_list.append(project_budget_details[0].name)
+										existing_investment_row["project_budget"] = ", ".join(pb_list)
 										existing_investment_row["actual_expense"] = expense
 										existing_investment_row["budget_variance"] = existing_investment_row["budget"] - existing_investment_row["actual_expense"]
 										if existing_investment_row["budget"] > 0:
-											existing_investment_row["spent_as_percent_against_budget"] = (existing_investment_row["actual_expense"] * 100) / existing_investment_row["budget"]
+											existing_investment_row["spent_as_percent_against_budget"] = flt((existing_investment_row["actual_expense"] * 100) / existing_investment_row["budget"], 2)
 										else:
 											existing_investment_row["spent_as_percent_against_budget"] = 0
 
 
 										total_investment_actual = total_investment_actual + (investment_row.get("debit") - investment_row.get("credit"))
+										total_expenses_for_overhead = total_expenses_for_overhead + (investment_row.get("debit") - investment_row.get("credit"))
 
-							
+				if len(data_for_overhead)>0:
+					for d in data_for_overhead:
+						if d.get("project_budget") == project_budget_details[0].name:
+							d["total_expense"] = d.get("total_expense") + total_expenses_for_overhead
 
+	# Updating Investment Summary Row
 	for row in investment_data:
 		if row.get("description") == "<b>Investments</b>":
 			row["budget"] = total_investment_budget
@@ -314,16 +407,23 @@ def get_data(filters):
 			row["total_receipt"] = total_investment_receipt
 			row["budget_variance"] = total_investment_budget - total_investment_actual
 			row["receipt_variance"] = total_investment_receipt - total_investment_actual
-			total_consumption = total_consumption + total_investment_actual
+			total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + total_investment_actual
+			total_budget = total_budget + total_investment_budget
+			total_receipt_of_all_type = total_receipt_of_all_type + total_investment_receipt
+			total_actual = total_actual + total_investment_actual
+			total_budget_variance = total_budget_variance + (total_investment_budget - total_investment_actual)
+			total_receipt_variance = total_receipt_variance + (total_investment_receipt - total_investment_actual)
 			if total_investment_budget > 0:
-				row["spent_as_percent_against_budget"] = (total_investment_actual * 100) / total_investment_budget
+				row["spent_as_percent_against_budget"] = flt((total_investment_actual * 100) / total_investment_budget, 2)
 			else:
 				row["spent_as_percent_against_budget"] = 0
 			if total_investment_receipt > 0:
-				row["spent_as_percent_against_receipt"] = (total_investment_actual * 100) / total_investment_receipt
+				row["spent_as_percent_against_receipt"] = flt((total_investment_actual * 100) / total_investment_receipt, 2)
 			else:
 				row["spent_as_percent_against_receipt"] = 0
-	
+
+			total_spent_as_percent_against_budget = total_spent_as_percent_against_budget + row["spent_as_percent_against_budget"]
+			total_spent_as_percent_against_receipt = total_spent_as_percent_against_receipt + row["spent_as_percent_against_receipt"]
 
 	# Calculations for Capex
 
@@ -338,6 +438,7 @@ def get_data(filters):
 
 	if len(project_budget)>0:
 		for project in project_budget:
+			total_expenses_for_overhead = 0
 			project_budget_details = frappe.db.sql("""
 							SELECT
 								tpb.name,
@@ -387,13 +488,14 @@ def get_data(filters):
 								capex_report_row["budget_variance"] = budget_variance
 
 								if capex_report_row["budget"] > 0:
-									spent_as_percent_against_budget = (capex_report_row["actual_expense"] * 100) / capex_report_row["budget"]
+									spent_as_percent_against_budget = flt((capex_report_row["actual_expense"] * 100) / capex_report_row["budget"], 2)
 								else:
 									spent_as_percent_against_budget = 0
 								capex_report_row["spent_as_percent_against_budget"] = spent_as_percent_against_budget
 
 								capex_data.append(capex_report_row)
 								total_capex_actual = total_capex_actual + capex_expense
+								total_expenses_for_overhead = total_expenses_for_overhead + capex_expense
 
 							else :
 								for existing_capex_row in capex_data:
@@ -405,15 +507,21 @@ def get_data(filters):
 										existing_capex_row["project_budget"] = ", ".join(project_budget_list)
 										existing_capex_row["budget_variance"] = existing_capex_row["budget"] - existing_capex_row["actual_expense"]
 										if existing_capex_row["budget"] > 0:
-											existing_capex_row["spent_as_percent_against_budget"] = (existing_capex_row["actual_expense"] * 100) / existing_capex_row["budget"]
+											existing_capex_row["spent_as_percent_against_budget"] = flt((existing_capex_row["actual_expense"] * 100) / existing_capex_row["budget"], 2)
 										else:
 											existing_capex_row["spent_as_percent_against_budget"] = 0
 
 										total_capex_actual = total_capex_actual + (capex_row.total_debit - capex_row.total_credit)
+										total_expenses_for_overhead = total_expenses_for_overhead + (capex_row.total_debit - capex_row.total_credit)
 				else:
 					capex_expense = 0
 
+				if len(data_for_overhead)>0:
+					for d in data_for_overhead:
+						if d.get("project_budget") == project_budget_details[0].name:
+							d["total_expense"] = d.get("total_expense") + total_expenses_for_overhead
 
+	# Updating Capex Summary Row
 	for row in capex_data:
 		if row.get("description") == "<b>Capex</b>":
 			row["budget"] = total_capex_budget
@@ -421,16 +529,23 @@ def get_data(filters):
 			row["total_receipt"] = total_capex_receipt
 			row["budget_variance"] = total_capex_budget - total_capex_actual
 			row["receipt_variance"] = total_capex_receipt - total_capex_actual
-			total_consumption = total_consumption + total_capex_actual
+			total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + total_capex_actual
+			total_budget = total_budget + total_capex_budget
+			total_receipt_of_all_type = total_receipt_of_all_type + total_capex_receipt
+			total_actual = total_actual + total_capex_actual
+			total_budget_variance = total_budget_variance + (total_capex_budget - total_capex_actual)
+			total_receipt_variance = total_receipt_variance + (total_capex_receipt - total_capex_actual)
 			if total_capex_budget > 0:
-				row["spent_as_percent_against_budget"] = (total_capex_actual * 100) / total_capex_budget
+				row["spent_as_percent_against_budget"] = flt((total_capex_actual * 100) / total_capex_budget, 2)
 			else:
 				row["spent_as_percent_against_budget"] = 0
 			if total_capex_receipt > 0:
-				row["spent_as_percent_against_receipt"] = (total_capex_actual * 100) / total_capex_receipt
+				row["spent_as_percent_against_receipt"] = flt((total_capex_actual * 100) / total_capex_receipt, 2)
 			else:
 				row["spent_as_percent_against_receipt"] = 0
 
+			total_spent_as_percent_against_budget = total_spent_as_percent_against_budget + row["spent_as_percent_against_budget"]
+			total_spent_as_percent_against_receipt = total_spent_as_percent_against_receipt + row["spent_as_percent_against_receipt"]
 
 	# Advances Calculations
 
@@ -440,6 +555,7 @@ def get_data(filters):
 	advances_data.append({"description":"<b>Advances</b>"})
 
 	if len(project_budget)>0:
+		total_expenses_for_overhead = 0
 		if len(advance_accounts)>0:
 			for account in advance_accounts:
 				total_debit = 0
@@ -498,12 +614,25 @@ def get_data(filters):
 				advance_report_row["budget_variance"] = budget_variance
 
 				if advance_report_row["budget"] > 0:
-					spent_as_percent_against_budget = (advance_report_row["actual_expense"] * 100) / advance_report_row["budget"]
+					spent_as_percent_against_budget = flt((advance_report_row["actual_expense"] * 100) / advance_report_row["budget"], 2)
 				else:
 					spent_as_percent_against_budget = 0
 				advance_report_row["spent_as_percent_against_budget"] = spent_as_percent_against_budget
 
+				total_actual = total_actual + advance_expense
+				total_budget_variance = total_budget_variance + budget_variance
+
+				total_spent_as_percent_against_budget = total_spent_as_percent_against_budget + row["spent_as_percent_against_budget"]
+				total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + advance_expense
+
 				advances_data.append(advance_report_row)
+
+				total_expenses_for_overhead = total_expenses_for_overhead + advance_expense
+		
+		if len(data_for_overhead)>0:
+			for d in data_for_overhead:
+				if d.get("project_budget") == project_budget_details[0].name:
+					d["total_expense"] = d.get("total_expense") + total_expenses_for_overhead
 
 	
 	# Overhead Calcultions
@@ -541,8 +670,12 @@ def get_data(filters):
 				receipt_amount_for_overhead = ( total_receipt * project_budget_details[0].overhead_percentage ) / 100
 				total_overhead_receipt = total_overhead_receipt + receipt_amount_for_overhead
 
-				overhead_expense = overhead_expense + project_budget_details[0].overhead_amount
-				project_budget_list.append(project_budget_details[0].name)
+				if len(data_for_overhead)>0:
+					for d in data_for_overhead:
+						if d.get("project_budget") == project_budget_details[0].name:
+							overhead_expense = overhead_expense + ( ( d.get("total_expense") * project_budget_details[0].overhead_percentage ) / 100 )
+							if project not in project_budget_list:
+								project_budget_list.append(project_budget_details[0].name)
 				# total_overhead_actual = total_overhead_actual + overhead_expense
 		overhead_report_row = {}
 		overhead_report_row["description"] = ""
@@ -552,6 +685,7 @@ def get_data(filters):
 		overhead_report_row["actual_expense"] = overhead_expense
 		overhead_data.append(overhead_report_row)
 
+	# Updating Overhead Summary Row
 	for row in overhead_data:
 		if row.get("description") == "<b>Overhead</b>":
 			row["budget"] = total_overhead_budget
@@ -559,14 +693,22 @@ def get_data(filters):
 			row["total_receipt"] = total_overhead_receipt
 			row["budget_variance"] = total_overhead_budget - overhead_expense
 			row["receipt_variance"] = total_overhead_receipt - overhead_expense
+			total_budget = total_budget + total_overhead_budget
+			total_receipt_of_all_type = total_receipt_of_all_type + total_overhead_receipt
+			total_actual = total_actual + overhead_expense
+			total_budget_variance = total_budget_variance + (total_overhead_budget - overhead_expense)
+			total_receipt_variance = total_receipt_variance + (total_overhead_receipt - overhead_expense)
 			if total_overhead_budget > 0:
-				row["spent_as_percent_against_budget"] = (overhead_expense * 100) / total_overhead_budget
+				row["spent_as_percent_against_budget"] = flt((overhead_expense * 100) / total_overhead_budget, 2)
 			else:
 				row["spent_as_percent_against_budget"] = 0
 			if total_overhead_receipt > 0:
-				row["spent_as_percent_against_receipt"] = (overhead_expense * 100) / total_overhead_receipt
+				row["spent_as_percent_against_receipt"] = flt((overhead_expense * 100) / total_overhead_receipt, 2)
 			else:
 				row["spent_as_percent_against_receipt"] = 0
+
+			total_spent_as_percent_against_budget = total_spent_as_percent_against_budget + row["spent_as_percent_against_budget"]
+			total_spent_as_percent_against_receipt = total_spent_as_percent_against_receipt + row["spent_as_percent_against_receipt"]
 
 	# Income Calculations
 	income_data.append({"description":"<b>Income</b>"})
@@ -629,9 +771,20 @@ def get_data(filters):
 
 				else:
 					income = 0
+				total_receipt_of_all_type = total_receipt_of_all_type + total_income
 
 
 	report_data = expense_data + investment_data + capex_data + advances_data + overhead_data + income_data
+	report_data.append({
+		"description":"<b>Total</b>",
+		"budget": total_budget,
+		"actual_expense": total_actual,
+		"total_receipt": total_receipt_of_all_type,
+		"budget_variance": total_budget_variance,
+		"receipt_variance": total_receipt_variance,
+		"spent_as_percent_against_budget": total_spent_as_percent_against_budget,
+		"spent_as_percent_against_receipt": total_spent_as_percent_against_receipt
+	})
 	return report_data
 
 def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger_account,cost_center):
