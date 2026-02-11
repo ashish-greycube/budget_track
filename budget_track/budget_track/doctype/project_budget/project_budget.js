@@ -40,14 +40,24 @@ frappe.ui.form.on("Project Budget", {
             }
         })
 
-        frm.set_query("description", "particulars_for_expenses", function(doc){
-            return {
-                filters: {
-                    "company": doc.company,
-                    "is_group":0
-                },
-            }
-        })
+        
+        if (frm.doc.company) {
+            frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
+            .then(r => {
+                console.log(r.message.custom_default_budget_expense_account,"===")
+                frm.set_query("description", "particulars_for_expenses", function(doc){
+                    return {
+                        filters: {
+                            "company": doc.company,
+                            "parent_account":r.message.custom_default_budget_expense_account,
+                            "is_group":0
+                        },
+                    }
+                })
+            })
+        } else {
+            frappe.throw(__("Please Select Company First"))
+        }
 	},
 
     refresh(frm) {
