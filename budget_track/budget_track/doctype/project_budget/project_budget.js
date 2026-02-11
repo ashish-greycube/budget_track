@@ -45,7 +45,10 @@ frappe.ui.form.on("Project Budget", {
             frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
             .then(r => {
                 console.log(r.message.custom_default_budget_expense_account,"===")
-                frm.set_query("description", "particulars_for_expenses", function(doc){
+                if (r.message.custom_default_budget_expense_account == null || r.message.custom_default_budget_expense_account == ""){
+                    frappe.throw(__("Please set Company Default Expense Account in Company Doctype"))
+                } else {
+                    frm.set_query("description", "particulars_for_expenses", function(doc){
                     return {
                         filters: {
                             "company": doc.company,
@@ -54,6 +57,7 @@ frappe.ui.form.on("Project Budget", {
                         },
                     }
                 })
+                }
             })
         } else {
             frappe.throw(__("Please Select Company First"))
