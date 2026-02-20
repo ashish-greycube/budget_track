@@ -41,27 +41,6 @@ frappe.ui.form.on("Project Budget", {
         })
 
         
-        if (frm.doc.company) {
-            frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
-            .then(r => {
-                console.log(r.message.custom_default_budget_expense_account,"===")
-                if (r.message.custom_default_budget_expense_account == null || r.message.custom_default_budget_expense_account == ""){
-                    frappe.throw(__("Please set Company Default Expense Account in Company Doctype"))
-                } else {
-                    frm.set_query("description", "particulars_for_expenses", function(doc){
-                    return {
-                        filters: {
-                            "company": doc.company,
-                            "parent_account":r.message.custom_default_budget_expense_account,
-                            "is_group":0
-                        },
-                    }
-                })
-                }
-            })
-        } else {
-            frappe.throw(__("Please Select Company First"))
-        }
 	},
 
     refresh(frm) {
@@ -77,6 +56,27 @@ frappe.ui.form.on("Project Budget", {
                     frappe.set_route("query-report", "Check Budget Allocation", { "project_budget": frm.doc.name });
                     frm.reload_doc()
                 });
+            }
+        })
+    },
+
+    onload_post_render(frm){
+        frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
+        .then(r => {
+            console.log(r.message.custom_default_budget_expense_account,"===",frm.doc.company)
+            if (r.message.custom_default_budget_expense_account == null || r.message.custom_default_budget_expense_account == ""){
+                frappe.throw(__("Please set Company Default Expense Account in Company Doctype"))
+            } else {
+                console.log("IN ELSE")
+                frm.set_query("description", "particulars_for_expenses", function(doc){
+                return {
+                    filters: {
+                        "company": frm.doc.company,
+                        "parent_account":r.message.custom_default_budget_expense_account,
+                        "is_group":0
+                    },
+                }
+            })
             }
         })
     },
