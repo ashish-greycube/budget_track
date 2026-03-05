@@ -982,7 +982,9 @@ def get_data(filters):
 										tpb.overhead_cost_center,
 										tpba.overhead_percentage,
 										tpba.overhead_amount,
-										tpba.fiscal_year
+										tpba.fiscal_year,
+										tfy.year_start_date,
+										tfy.year_end_date
 									FROM
 										`tabFiscal Year Wise Project Budget Allocation` tpba
 									INNER JOIN `tabFiscal Year` tfy ON
