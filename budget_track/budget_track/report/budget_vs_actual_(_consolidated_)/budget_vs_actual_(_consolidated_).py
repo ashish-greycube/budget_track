@@ -191,7 +191,7 @@ def get_data(filters):
 						# Calculating Variance and Percentages 
 
 						budget_variance = report_row["budget"] - report_row["actual_expense"]
-						receipt_variance = report_row["budget"] - report_row["total_receipt"]
+						receipt_variance = report_row["total_receipt"] - report_row["actual_expense"]
 						report_row["budget_variance"] = budget_variance
 						report_row["receipt_variance"] = receipt_variance
 
@@ -266,13 +266,13 @@ def get_data(filters):
 			row["total_receipt"] = total_operational_expense_receipt
 			row["actual_expense"] = total_operational_expense_actual
 			row["budget_variance"] = total_operational_expense_budget - total_operational_expense_actual
-			row["receipt_variance"] = total_operational_expense_budget - total_operational_expense_receipt
+			row["receipt_variance"] = total_operational_expense_receipt - total_operational_expense_actual
 			total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + total_operational_expense_actual
 			total_budget = total_budget + total_operational_expense_budget
 			total_receipt_of_all_type = total_receipt_of_all_type + total_operational_expense_receipt
 			total_actual = total_actual + total_operational_expense_actual
 			total_budget_variance = total_budget_variance + (total_operational_expense_budget - total_operational_expense_actual)
-			total_receipt_variance = total_receipt_variance + (total_operational_expense_budget - total_operational_expense_receipt)
+			total_receipt_variance = total_receipt_variance + (total_operational_expense_receipt - total_operational_expense_actual)
 			
 			if total_operational_expense_budget > 0:
 				row["spent_as_percent_against_budget"] = flt((total_operational_expense_actual * 100) / total_operational_expense_budget, 2)
@@ -406,13 +406,13 @@ def get_data(filters):
 			row["actual_expense"] = total_investment_actual
 			row["total_receipt"] = total_investment_receipt
 			row["budget_variance"] = total_investment_budget - total_investment_actual
-			row["receipt_variance"] = total_investment_budget - total_investment_receipt
+			row["receipt_variance"] = total_investment_receipt - total_investment_actual
 			total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + total_investment_actual
 			total_budget = total_budget + total_investment_budget
 			total_receipt_of_all_type = total_receipt_of_all_type + total_investment_receipt
 			total_actual = total_actual + total_investment_actual
 			total_budget_variance = total_budget_variance + (total_investment_budget - total_investment_actual)
-			total_receipt_variance = total_receipt_variance + (total_investment_budget - total_investment_receipt)
+			total_receipt_variance = total_receipt_variance + (total_investment_receipt - total_investment_actual)
 			if total_investment_budget > 0:
 				row["spent_as_percent_against_budget"] = flt((total_investment_actual * 100) / total_investment_budget, 2)
 			else:
@@ -528,13 +528,13 @@ def get_data(filters):
 			row["actual_expense"] = total_capex_actual
 			row["total_receipt"] = total_capex_receipt
 			row["budget_variance"] = total_capex_budget - total_capex_actual
-			row["receipt_variance"] = total_capex_budget - total_capex_receipt
+			row["receipt_variance"] = total_capex_receipt - total_capex_actual
 			total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + total_capex_actual
 			total_budget = total_budget + total_capex_budget
 			total_receipt_of_all_type = total_receipt_of_all_type + total_capex_receipt
 			total_actual = total_actual + total_capex_actual
 			total_budget_variance = total_budget_variance + (total_capex_budget - total_capex_actual)
-			total_receipt_variance = total_receipt_variance + (total_capex_budget - total_capex_receipt)
+			total_receipt_variance = total_receipt_variance + (total_capex_receipt - total_capex_actual)
 			if total_capex_budget > 0:
 				row["spent_as_percent_against_budget"] = flt((total_capex_actual * 100) / total_capex_budget, 2)
 			else:
@@ -692,12 +692,12 @@ def get_data(filters):
 			row["actual_expense"] = overhead_expense
 			row["total_receipt"] = total_overhead_receipt
 			row["budget_variance"] = total_overhead_budget - overhead_expense
-			row["receipt_variance"] = total_overhead_budget - total_overhead_receipt
+			row["receipt_variance"] = total_overhead_receipt - overhead_expense
 			total_budget = total_budget + total_overhead_budget
 			total_receipt_of_all_type = total_receipt_of_all_type + total_overhead_receipt
 			total_actual = total_actual + overhead_expense
 			total_budget_variance = total_budget_variance + (total_overhead_budget - overhead_expense)
-			total_receipt_variance = total_receipt_variance + (total_overhead_budget - total_overhead_receipt)
+			total_receipt_variance = total_receipt_variance + (total_overhead_receipt - overhead_expense)
 			if total_overhead_budget > 0:
 				row["spent_as_percent_against_budget"] = flt((overhead_expense * 100) / total_overhead_budget, 2)
 			else:
