@@ -558,10 +558,10 @@ def get_data(filters):
 		total_expenses_for_overhead = 0
 		if len(advance_accounts)>0:
 			for account in advance_accounts:
-				total_debit = 0
-				total_credit = 0
 				advance_expense = 0
 				for project in project_budget:
+					total_debit = 0
+					total_credit = 0
 					project_budget_details = frappe.db.sql("""
 									SELECT
 										tpb.name,
@@ -594,12 +594,20 @@ def get_data(filters):
 									total_debit += d.get("debit")
 									total_credit += d.get("credit")
 							advance_expense = advance_expense + (total_debit - total_credit)
+							print(advance_expense,"=++++++++++========++++++++++++=========++++++++++=========+++++++++++==========++++++++++++=====",project)
 							if advance_expense > 0 and project not in project_budget_list:
 								project_budget_list.append(project)
 
 						else:
 							advance_expense = 0
 						
+						if len(data_for_overhead)>0:
+							for d in data_for_overhead:
+								if d.get("project_budget") == project_budget_details[0].name:
+									print(project_budget_details[0].name,d.get("total_expense"),(total_debit - total_credit),"advances------------")
+									d["total_expense"] = d.get("total_expense") + (total_debit - total_credit)
+
+				print(advance_expense,"======================== accounr wise")
 				advance_report_row = {}
 				advance_report_row["description"] = account
 				advance_report_row["indent"] = 1
@@ -629,10 +637,6 @@ def get_data(filters):
 
 				total_expenses_for_overhead = total_expenses_for_overhead + advance_expense
 		
-		if len(data_for_overhead)>0:
-			for d in data_for_overhead:
-				if d.get("project_budget") == project_budget_details[0].name:
-					d["total_expense"] = d.get("total_expense") + total_expenses_for_overhead
 
 	
 	# Overhead Calcultions
@@ -659,7 +663,8 @@ def get_data(filters):
 								tpb.grant_ledger_account,
 								tpb.overhead_cost_center,
 								tpb.overhead_percentage,
-								tpb.overhead_amount
+								tpb.overhead_amount,
+								tpb.total_budget
 							FROM
 								`tabProject Budget` tpb
 							WHERE tpb.name = '{0}'
@@ -669,11 +674,15 @@ def get_data(filters):
 				total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
 				receipt_amount_for_overhead = ( total_receipt * project_budget_details[0].overhead_percentage ) / 100
 				total_overhead_receipt = total_overhead_receipt + receipt_amount_for_overhead
+				budget_excluding_overhead = project_budget_details[0].total_budget - project_budget_details[0].overhead_amount
+				overhead_actual_percentage = (project_budget_details[0].overhead_amount / budget_excluding_overhead) * 100
+				print(project_budget_details[0].total_budget, project_budget_details[0].overhead_amount,overhead_actual_percentage,budget_excluding_overhead,"++++++++++++++++++==================++++++++++++++++++++===============+++++++++++++++++++======================overhead_actual_percentage")
 
 				if len(data_for_overhead)>0:
 					for d in data_for_overhead:
 						if d.get("project_budget") == project_budget_details[0].name:
-							overhead_expense = overhead_expense + ( ( d.get("total_expense") * project_budget_details[0].overhead_percentage ) / 100 )
+							overhead_expense = overhead_expense + ( ( d.get("total_expense") * overhead_actual_percentage ) / 100 )
+							print(project_budget_details[0].name,d.get("total_expense"),"<--expense",overhead_actual_percentage,"<--overhead_actual_percentage",( ( d.get("total_expense") * overhead_actual_percentage ) / 100 ),"<--overhead amount")
 							if project not in project_budget_list:
 								project_budget_list.append(project_budget_details[0].name)
 				# total_overhead_actual = total_overhead_actual + overhead_expense
@@ -720,6 +729,7 @@ def get_data(filters):
 
 	if len(project_budget)>0:
 		for project in project_budget:
+			total_income = 0
 			project_budget_details = frappe.db.sql("""
 							SELECT
 								tpb.name,
@@ -771,6 +781,7 @@ def get_data(filters):
 
 				else:
 					income = 0
+				print(total_receipt_of_all_type,total_income,"================",project)
 				total_receipt_of_all_type = total_receipt_of_all_type + total_income
 
 
@@ -814,5 +825,6 @@ def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger
 		total_receipt = total_credit - total_debit
 	else:
 		total_receipt = 0
+	print(total_receipt,"-------------------total_receipt")
 	
 	return total_receipt

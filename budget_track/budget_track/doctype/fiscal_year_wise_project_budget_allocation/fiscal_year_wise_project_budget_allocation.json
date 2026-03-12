@@ -55,7 +55,8 @@
   {
    "fieldname": "overhead_percentage",
    "fieldtype": "Percent",
-   "label": "Overhead %"
+   "label": "Overhead %",
+   "read_only": 1
   },
   {
    "fieldname": "section_break_nkxx",
@@ -84,10 +85,8 @@
   {
    "fieldname": "overhead_amount",
    "fieldtype": "Currency",
-   "hidden": 1,
    "label": "Overhead Amount",
-   "non_negative": 1,
-   "read_only": 1
+   "non_negative": 1
   },
   {
    "fieldname": "expense_percentage",
@@ -114,11 +113,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-05 11:24:45.652920",
+ "modified": "2026-03-12 14:56:05.140789",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Fiscal Year Wise Project Budget Allocation",
- "naming_rule": "Expression",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {

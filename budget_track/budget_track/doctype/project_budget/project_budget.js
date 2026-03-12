@@ -132,7 +132,7 @@ let calculate_total_expenses = function (frm, cdt, cdn) {
 }
 
 let calculate_total_budget = function (frm) {
-    let total_budget = (frm.doc.startup_investment || 0) + (frm.doc.capex || 0) + (frm.doc.total_expenses || 0)
+    let total_budget = (frm.doc.startup_investment || 0) + (frm.doc.capex || 0) + (frm.doc.total_expenses || 0) + (frm.doc.overhead_amount)
     frm.set_value("total_budget", total_budget) 
 }
 

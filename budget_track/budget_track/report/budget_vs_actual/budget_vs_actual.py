@@ -1014,17 +1014,28 @@ def get_data(filters):
 						receipt_amount_for_overhead = ( total_receipt * project_budget_allocation_details[0].overhead_percentage ) / 100
 						total_overhead_receipt = total_overhead_receipt + receipt_amount_for_overhead
 
+						# if len(data_for_overhead)>0:
+						# 	for d in data_for_overhead:
+						# 		if d.get("project_budget") == project:
+						# 			print(( d.get("total_expense_{0}".format(fy_field_name)) * project_budget_allocation_details[0].overhead_percentage ) / 100,"--------------------calculation for overhead expense------------------", project_budget_allocation_details[0].overhead_percentage, d.get("total_expense_{0}".format(fy_field_name)))
+						# 			overhead_expense = overhead_expense + ( ( d.get("total_expense_{0}".format(fy_field_name)) * project_budget_allocation_details[0].overhead_percentage ) / 100 )
+						# 			if project not in project_budget_list:
+						# 				project_budget_list.append(project)
+						
+									# total_overhead_actual = total_overhead_actual + overhead_expense
+
+					if len(overhead_data)==1:
+						### calculation for overhead expense
+						total_budget_to_calculate_overhead_actual_percentage = (total_row.get("budget_{0}".format(fy_field_name)) or 0) 
+						overhead_actual_percentage = (project_budget_allocation_details[0].overhead_amount / total_budget_to_calculate_overhead_actual_percentage ) * 100
+
 						if len(data_for_overhead)>0:
 							for d in data_for_overhead:
 								if d.get("project_budget") == project:
-									print(( d.get("total_expense_{0}".format(fy_field_name)) * project_budget_allocation_details[0].overhead_percentage ) / 100,"--------------------calculation for overhead expense------------------", project_budget_allocation_details[0].overhead_percentage, d.get("total_expense_{0}".format(fy_field_name)))
-									overhead_expense = overhead_expense + ( ( d.get("total_expense_{0}".format(fy_field_name)) * project_budget_allocation_details[0].overhead_percentage ) / 100 )
+									print(overhead_actual_percentage,total_budget_to_calculate_overhead_actual_percentage,"--------------------calculation for overhead expense------------------", project_budget_allocation_details[0].overhead_percentage, d.get("total_expense_{0}".format(fy_field_name)))
+									overhead_expense = overhead_expense + ( ( d.get("total_expense_{0}".format(fy_field_name)) * overhead_actual_percentage ) / 100 )
 									if project not in project_budget_list:
 										project_budget_list.append(project)
-						
-									total_overhead_actual = total_overhead_actual + overhead_expense
-
-					if len(overhead_data)==1:
 						overhead_report_row = {}
 						overhead_report_row["description"] = ""
 						overhead_report_row["indent"] = 1
@@ -1046,7 +1057,7 @@ def get_data(filters):
 								
 								previous_year_budget_variance = existing_overhead_row.get("budget_variance_{0}".format(fy_field_name))
 								
-								# total_overhead_actual = total_overhead_actual + overhead_expense
+					total_overhead_actual = total_overhead_actual + overhead_expense
 
 					for row in overhead_data:
 						if row.get("description") == "<b>Overhead</b>":

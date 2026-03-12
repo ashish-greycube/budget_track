@@ -112,7 +112,8 @@
   {
    "fieldname": "overhead_percentage",
    "fieldtype": "Percent",
-   "label": "Overhead %"
+   "label": "Overhead %",
+   "read_only": 1
   },
   {
    "fieldname": "startup_investment_percentage",
@@ -138,15 +139,13 @@
   {
    "fieldname": "overhead_amount",
    "fieldtype": "Currency",
-   "hidden": 1,
-   "label": "Overhead Amount",
-   "read_only": 1
+   "label": "Overhead Amount"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-12 12:36:44.136051",
+ "modified": "2026-03-12 14:55:48.760846",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Project Budget",
