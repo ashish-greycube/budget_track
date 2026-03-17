@@ -61,6 +61,12 @@ frappe.ui.form.on("Project Budget", {
     },
 
     onload_post_render(frm){
+
+        if (!frm.is_new()) {
+            frm.add_custom_button(__('Consolidated'), () => show_budget_vs_actual_consolidate_report(frm,"Consolidated"),__('Budget/Actual'));
+            frm.add_custom_button(__('Fiscal Year Wise'), () => show_budget_vs_actual_consolidate_report(frm,"FY Wise"),__('Budget/Actual'));
+        }
+
         frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
         .then(r => {
             console.log(r.message.custom_default_budget_expense_account,"===",frm.doc.company)
@@ -142,4 +148,18 @@ let calculate_percentage_allocation_for_expenses = function (frm) {
         percentage_of_expense = ( row.amount * 100 ) / total_expense
         frappe.model.set_value(row.doctype, row.name, "percentage_allocation", percentage_of_expense)
     })
+}
+
+let show_budget_vs_actual_consolidate_report = function(frm, type) {
+    frappe.open_in_new_tab = true;
+    frappe.route_options = {
+        company: frm.doc.company,
+        project_budget: frm.doc.name
+    };
+    
+    if (type == "Consolidated") {
+        frappe.set_route("query-report", "Budget Vs Actual ( Consolidated )");
+    } else if (type == "FY Wise") {
+        frappe.set_route("query-report", "Budget Vs Actual");
+    }
 }

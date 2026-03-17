@@ -145,9 +145,9 @@ def get_data(filters):
 				total_operational_expense_receipt = total_operational_expense_receipt + expense_receipt_amount
 				
 				for row in project_budget_details:
-					if row.description not in account_list:
+					if row.cost_center_for_expense not in account_list:
 						report_row = {}
-						report_row["description"] = row.description
+						report_row["description"] = row.cost_center_for_expense
 						report_row["indent"] = 1
 						report_row["project_budget"] = row.name
 						report_row["budget"] = row.amount
@@ -208,12 +208,12 @@ def get_data(filters):
 						report_row["spent_as_percent_against_receipt"] = spent_as_percent_against_receipt
 
 						expense_data.append(report_row)
-						account_list.append(row.description)
+						account_list.append(row.cost_center_for_expense)
 						if row.name not in pb_list:
 							pb_list.append(row.name)
 					else :
 						for existing_expense_row in expense_data:
-							if existing_expense_row.get("description") == row.description:
+							if existing_expense_row.get("description") == row.cost_center_for_expense:
 								if row.name not in pb_list:
 									pb_list.append(row.name)
 								existing_expense_row["project_budget"] = ", ".join(pb_list)

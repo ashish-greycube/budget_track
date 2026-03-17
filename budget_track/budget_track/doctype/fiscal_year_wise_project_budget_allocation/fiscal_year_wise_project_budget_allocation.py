@@ -25,6 +25,7 @@ class FiscalYearWiseProjectBudgetAllocation(Document):
 		self.capex_percentage = capex_percentage
 		self.expense_percentage = expense_percentage
 		self.overhead_percentage = overhead_percentage
+		self.total_budget = total_budget
 
 		if len(self.particulars_for_expenses)>0:
 			for row in self.particulars_for_expenses:

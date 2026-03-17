@@ -11,6 +11,7 @@
   "startup_investment",
   "startup_investment_percentage",
   "company",
+  "total_budget",
   "column_break_ioib",
   "capex",
   "capex_percentage",
@@ -108,12 +109,18 @@
    "hidden": 1,
    "label": "Startup Investment Percentage",
    "read_only": 1
+  },
+  {
+   "fieldname": "total_budget",
+   "fieldtype": "Currency",
+   "label": "Total Budget",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-12 14:56:05.140789",
+ "modified": "2026-03-13 12:30:02.859091",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Fiscal Year Wise Project Budget Allocation",
