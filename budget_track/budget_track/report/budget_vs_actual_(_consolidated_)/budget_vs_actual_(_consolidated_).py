@@ -10,8 +10,8 @@ from erpnext.accounts.report.general_ledger.general_ledger import execute as gl_
 def execute(filters=None):
 	columns, data = [], []
 
-	columns = get_columns(filters)
-	data = get_data(filters)
+	# columns = get_columns(filters)
+	data, columns = get_data(filters)
 
 	return columns, data
 
@@ -23,13 +23,13 @@ def get_columns(filters):
 			"fieldtype": "Data",
 			"width": 400
 		},
-		{
-			"fieldname": "project_budget",
-			"label":_("Project Budget"),
-			"fieldtype": "Data",
-			"options":"Project Budget",
-			"width": 200
-		},
+		# {
+		# 	"fieldname": "project_budget",
+		# 	"label":_("Project Budget"),
+		# 	"fieldtype": "Data",
+		# 	"options":"Project Budget",
+		# 	"width": 200
+		# },
 		{
 			"fieldname": "budget",
 			"label":_("Budget"),
@@ -77,6 +77,7 @@ def get_columns(filters):
 	]
 
 def get_data(filters):
+	max_description_length = 0
 	project_budget = filters.get("project_budget")
 
 	# Initializing Total Variables
@@ -146,6 +147,9 @@ def get_data(filters):
 				
 				for row in project_budget_details:
 					if row.cost_center_for_expense not in account_list:
+						description_length = len(row.cost_center_for_expense)
+						if description_length>max_description_length:
+							max_description_length = description_length
 						report_row = {}
 						report_row["description"] = row.cost_center_for_expense
 						report_row["indent"] = 1
@@ -344,13 +348,21 @@ def get_data(filters):
 				})
 
 				gl_report_data_for_investments = gl_execute(filters_of_investment_expense_for_general_ledger)
+				print(gl_report_data_for_investments[1],"------------------------------------------------------------------gl_report_data_for_investments[1]")
 				if len(gl_report_data_for_investments[1]) >0:
 					for investment_row in gl_report_data_for_investments[1]:
 						if investment_row.get("account") and investment_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-							if investment_row.get("account") not in account_list:
+							
+							# check length of description
+							description_for_report = investment_row.get("cost_center") + " _ " + investment_row.get("account")
+							description_length = len(description_for_report)
+							if description_length>max_description_length:
+								max_description_length = description_length
+
+							if description_for_report not in account_list:
 								report_row = {}
 								expense = investment_row.get("debit") - investment_row.get("credit")
-								report_row["description"] = investment_row.get("account")
+								report_row["description"] = description_for_report
 								report_row["indent"] = 1
 								report_row["project_budget"] = project_budget_details[0].name
 								report_row["actual_expense"] = expense
@@ -370,14 +382,14 @@ def get_data(filters):
 								report_row["spent_as_percent_against_budget"] = spent_as_percent_against_budget
 
 								investment_data.append(report_row)
-								account_list.append(investment_row.get("account"))
+								account_list.append(description_for_report)
 								if project_budget_details[0].name not in pb_list:
 									pb_list.append(project_budget_details[0].name)
 								
 								total_expenses_for_overhead = total_expenses_for_overhead + expense
 							else :
 								for existing_investment_row in investment_data:
-									if existing_investment_row.get("description") == investment_row.get("account"):
+									if existing_investment_row.get("description") == description_for_report:
 
 										expense = existing_investment_row.get("actual_expense") + (investment_row.get("debit") - investment_row.get("credit"))
 										if expense > 0 and project_budget_details[0].name not in pb_list:
@@ -464,19 +476,26 @@ def get_data(filters):
 
 				gl_list = frappe.db.get_all("GL Entry",
 							 filters={"posting_date":["between",[project_budget_details[0].project_start_date,today()]],"account":["descendants of (inclusive)",company_default_capex_account],"cost_center":["descendants of (inclusive)",project_budget_details[0].name]},
-							 fields=["sum(debit) as total_debit", "sum(credit) as total_credit", "account"],group_by="account")
+							 fields=["sum(debit) as total_debit", "sum(credit) as total_credit", "account","cost_center"],group_by="account")
 
 				if len(gl_list)>0:
 					for capex_row in gl_list:
 						account_type = frappe.db.get_value("Account",capex_row.get("account"),"account_type")
 						if account_type and account_type == "Fixed Asset":
-							if capex_row.get("account") and capex_row.get("account") not in account_list:
+
+							# check length of description
+							description_for_report = capex_row.get("cost_center") + " _ " + capex_row.get("account")
+							description_length = len(description_for_report)
+							if description_length>max_description_length:
+								max_description_length = description_length
+
+							if capex_row.get("account") and description_for_report not in account_list:
 								capex_report_row = {}	
 								capex_expense = 0
 								capex_expense = capex_row.total_debit - capex_row.total_credit
 								if capex_expense > 0 and project not in project_budget_list:
 									project_budget_list.append(project)
-								capex_report_row["description"] = capex_row.get("account")
+								capex_report_row["description"] = description_for_report
 								capex_report_row["indent"] = 1
 								capex_report_row["project_budget"] = project_budget_details[0].name
 								capex_report_row["budget"] = 0
@@ -496,10 +515,11 @@ def get_data(filters):
 								capex_data.append(capex_report_row)
 								total_capex_actual = total_capex_actual + capex_expense
 								total_expenses_for_overhead = total_expenses_for_overhead + capex_expense
+								account_list.append(description_for_report)
 
 							else :
 								for existing_capex_row in capex_data:
-									if existing_capex_row.get("description") == capex_row.get("account"):
+									if existing_capex_row.get("description") == description_for_report:
 										capex_expense = existing_capex_row.get("actual_expense") + (capex_row.total_debit - capex_row.total_credit)
 										if capex_expense > 0 and project not in project_budget_list:
 											project_budget_list.append(project)
@@ -686,33 +706,33 @@ def get_data(filters):
 							if project not in project_budget_list:
 								project_budget_list.append(project_budget_details[0].name)
 				# total_overhead_actual = total_overhead_actual + overhead_expense
-		overhead_report_row = {}
-		overhead_report_row["description"] = ""
-		overhead_report_row["indent"] = 1
-		overhead_report_row["project_budget"] = ",".join(project_budget_list if len(project_budget_list) > 0 else "")
-		overhead_report_row["budget"] = 0
-		overhead_report_row["actual_expense"] = overhead_expense
-		overhead_data.append(overhead_report_row)
+		# overhead_report_row = {}
+		# overhead_report_row["description"] = ""
+		# overhead_report_row["indent"] = 1
+		# overhead_report_row["project_budget"] = ",".join(project_budget_list if len(project_budget_list) > 0 else "")
+		# overhead_report_row["budget"] = 0
+		# overhead_report_row["actual_expense"] = overhead_expense
+		# overhead_data.append(overhead_report_row)
 
 	# Updating Overhead Summary Row
 	for row in overhead_data:
 		if row.get("description") == "<b>Overhead</b>":
 			row["budget"] = total_overhead_budget
-			row["actual_expense"] = overhead_expense
+			row["actual_expense"] = flt(overhead_expense,0)
 			row["total_receipt"] = total_overhead_receipt
-			row["budget_variance"] = total_overhead_budget - overhead_expense
-			row["receipt_variance"] = total_overhead_receipt - overhead_expense
+			row["budget_variance"] = total_overhead_budget - flt(overhead_expense,0)
+			row["receipt_variance"] = total_overhead_receipt - flt(overhead_expense,0)
 			total_budget = total_budget + total_overhead_budget
 			total_receipt_of_all_type = total_receipt_of_all_type + total_overhead_receipt
-			total_actual = total_actual + overhead_expense
-			total_budget_variance = total_budget_variance + (total_overhead_budget - overhead_expense)
-			total_receipt_variance = total_receipt_variance + (total_overhead_receipt - overhead_expense)
+			total_actual = total_actual + flt(overhead_expense,0)
+			total_budget_variance = total_budget_variance + (total_overhead_budget - flt(overhead_expense,0))
+			total_receipt_variance = total_receipt_variance + (total_overhead_receipt - flt(overhead_expense,0))
 			if total_overhead_budget > 0:
-				row["spent_as_percent_against_budget"] = flt((overhead_expense * 100) / total_overhead_budget, 2)
+				row["spent_as_percent_against_budget"] = flt((flt(overhead_expense,0) * 100) / total_overhead_budget, 2)
 			else:
 				row["spent_as_percent_against_budget"] = 0
 			if total_overhead_receipt > 0:
-				row["spent_as_percent_against_receipt"] = flt((overhead_expense * 100) / total_overhead_receipt, 2)
+				row["spent_as_percent_against_receipt"] = flt((flt(overhead_expense,0) * 100) / total_overhead_receipt, 2)
 			else:
 				row["spent_as_percent_against_receipt"] = 0
 
@@ -796,7 +816,18 @@ def get_data(filters):
 		"spent_as_percent_against_budget": total_spent_as_percent_against_budget,
 		"spent_as_percent_against_receipt": total_spent_as_percent_against_receipt
 	})
-	return report_data
+
+	#set column's width based on max data
+	print(max_description_length,"----------length")
+	columns = get_columns(filters)
+	if len(columns)>0:
+		for col in columns:
+			if col.get("fieldname") == "description":
+				if col.get("width")>max_description_length*8:
+					pass
+				else:
+					col["width"] = max_description_length*8
+	return report_data, columns
 
 def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger_account,cost_center):
 	group_by = "Group by Voucher (Consolidated)"
