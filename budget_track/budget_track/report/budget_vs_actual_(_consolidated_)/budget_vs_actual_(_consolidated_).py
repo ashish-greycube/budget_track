@@ -215,48 +215,48 @@ def get_data(filters):
 						account_list.append(row.cost_center_for_expense)
 						if row.name not in pb_list:
 							pb_list.append(row.name)
-					else :
-						for existing_expense_row in expense_data:
-							if existing_expense_row.get("description") == row.cost_center_for_expense:
-								if row.name not in pb_list:
-									pb_list.append(row.name)
-								existing_expense_row["project_budget"] = ", ".join(pb_list)
-								existing_expense_row["budget"] = existing_expense_row.get("budget") + row.amount
+					# else :
+					# 	for existing_expense_row in expense_data:
+					# 		if existing_expense_row.get("description") == row.cost_center_for_expense:
+					# 			if row.name not in pb_list:
+					# 				pb_list.append(row.name)
+					# 			existing_expense_row["project_budget"] = ", ".join(pb_list)
+					# 			existing_expense_row["budget"] = existing_expense_row.get("budget") + row.amount
 
-								# Calculating Total Receipt For Operational Expense Cost Center Wise
+					# 			# Calculating Total Receipt For Operational Expense Cost Center Wise
 
-								cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
-								existing_expense_row["total_receipt"] = existing_expense_row.get("total_receipt") + cost_center_wise_receipt
+					# 			cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
+					# 			existing_expense_row["total_receipt"] = existing_expense_row.get("total_receipt") + cost_center_wise_receipt
 
-								# Calculating Actual Expense For Operational Expense Cost Center Wise
+					# 			# Calculating Actual Expense For Operational Expense Cost Center Wise
 
-								company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
-								filters_of_expenses_for_general_ledger = frappe._dict({
-									"company": row.company,
-									"from_date": row.project_start_date,
-									"to_date": getdate(today()),
-									"account":[company_default_expense_account],
-									"cost_center":[row.cost_center_for_expense],
-									"group_by": group_by,
-									"include_dimensions": include_dimensions,
-									"include_default_book_entries": include_default_book_entries
-								})
+					# 			company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
+					# 			filters_of_expenses_for_general_ledger = frappe._dict({
+					# 				"company": row.company,
+					# 				"from_date": row.project_start_date,
+					# 				"to_date": getdate(today()),
+					# 				"account":[company_default_expense_account],
+					# 				"cost_center":[row.cost_center_for_expense],
+					# 				"group_by": group_by,
+					# 				"include_dimensions": include_dimensions,
+					# 				"include_default_book_entries": include_default_book_entries
+					# 			})
 
-								gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
-								if len(gl_report_data_for_expenses)>0:
-									total_debit = 0
-									total_credit = 0
-									for expense_row in gl_report_data_for_expenses[1]:
-										if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-											if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
-												total_debit += expense_row.get("debit")
-												total_credit += expense_row.get("credit")
-									total_expense = total_debit - total_credit
-								else:
-									total_expense = 0
-								existing_expense_row["actual_expense"] = existing_expense_row.get("actual_expense") + total_expense 
-								total_expenses_for_overhead = total_expenses_for_overhead + total_expense
-								total_operational_expense_actual = total_operational_expense_actual + total_expense
+					# 			gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
+					# 			if len(gl_report_data_for_expenses)>0:
+					# 				total_debit = 0
+					# 				total_credit = 0
+					# 				for expense_row in gl_report_data_for_expenses[1]:
+					# 					if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
+					# 						if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
+					# 							total_debit += expense_row.get("debit")
+					# 							total_credit += expense_row.get("credit")
+					# 				total_expense = total_debit - total_credit
+					# 			else:
+					# 				total_expense = 0
+					# 			existing_expense_row["actual_expense"] = existing_expense_row.get("actual_expense") + total_expense 
+					# 			total_expenses_for_overhead = total_expenses_for_overhead + total_expense
+					# 			total_operational_expense_actual = total_operational_expense_actual + total_expense
 
 				data_for_overhead.append({
 					"project_budget": project_budget_details[0].name,
