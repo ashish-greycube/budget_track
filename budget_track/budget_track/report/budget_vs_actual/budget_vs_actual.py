@@ -157,6 +157,7 @@ def get_data(filters):
 	expense_data.append({"description":"<b>Operational Expenses</b>"})
 	total_carry_forward_budget = 0
 	total_carry_forward_receipt = 0
+	previous_fy = None
 	
 	if len(project_budget)>0:
 		for project in project_budget:
@@ -169,8 +170,10 @@ def get_data(filters):
 					total_carry_forward_receipt = 0
 					total_balance_budget = 0
 					total_available_fund = 0
-
+					current_fy = fy.name
 					fy_wise_total_expenses_for_overhead = 0
+					# NEW: Track cost centers already processed in this specific FY
+					processed_cc_in_current_fy = [] 
 
 					fy_field_name = (fy.name).replace("-","_")
 					project_budget_allocation_details = frappe.db.sql(f"""
@@ -231,166 +234,203 @@ def get_data(filters):
 						
 						# calculation for expenses based on cost centers
 						for row in project_budget_allocation_details:
-							if row.cost_center_for_expense not in cc_list:
-								description_length = len(row.cost_center_for_expense)
-								if description_length>max_description_length:
-									max_description_length = description_length
-								report_row = {}
-								report_row["description"] = row.cost_center_for_expense
-								report_row["indent"] = 1
-								report_row["project_budget"] = row.project_budget
-								report_row["budget_{0}".format(fy_field_name)] = row.amount
+							cc = row.cost_center_for_expense
+							if cc not in cc_list:
+								if cc not in processed_cc_in_current_fy:
+									cc_list.append(cc)
+									processed_cc_in_current_fy.append(cc)
 
-								# Calculating Total Receipt For Operational Expense Cost Center Wise
+									description_length = len(row.cost_center_for_expense)
+									if description_length>max_description_length:
+										max_description_length = description_length
+									report_row = {}
+									report_row["description"] = row.cost_center_for_expense
+									report_row["indent"] = 1
+									report_row["project_budget"] = row.project_budget
+									report_row["budget_{0}".format(fy_field_name)] = row.amount
 
-								cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
-								report_row["total_receipt_{0}".format(fy_field_name)] = cost_center_wise_receipt
+									# Calculating Total Receipt For Operational Expense Cost Center Wise
 
-								# Calculating Actual Expense For Operational Expense Cost Center Wise
+									cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
+									report_row["total_receipt_{0}".format(fy_field_name)] = cost_center_wise_receipt
 
-								company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
-								filters_of_expenses_for_general_ledger = frappe._dict({
-									"company": row.company,
-									"from_date": report_from_date,
-									"to_date": report_to_date,
-									"account":[company_default_expense_account],
-									"cost_center":[row.cost_center_for_expense],
-									"group_by": group_by,
-									"include_dimensions": include_dimensions,
-									"include_default_book_entries": include_default_book_entries
-								})
+									# Calculating Actual Expense For Operational Expense Cost Center Wise
 
-								gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
+									company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
+									filters_of_expenses_for_general_ledger = frappe._dict({
+										"company": row.company,
+										"from_date": report_from_date,
+										"to_date": report_to_date,
+										"account":[company_default_expense_account],
+										"cost_center":[row.cost_center_for_expense],
+										"group_by": group_by,
+										"include_dimensions": include_dimensions,
+										"include_default_book_entries": include_default_book_entries
+									})
 
-								if len(gl_report_data_for_expenses)>0:
-									total_debit = 0
-									total_credit = 0
-									for expense_row in gl_report_data_for_expenses[1]:
-										if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-											if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
+									gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
 
-												total_debit += expense_row.get("debit")
-												total_credit += expense_row.get("credit")
-									total_expense = total_debit - total_credit
+									if len(gl_report_data_for_expenses)>0:
+										total_debit = 0
+										total_credit = 0
+										for expense_row in gl_report_data_for_expenses[1]:
+											if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
+												# if expense_row.get("account") == row.description:
+													if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
+														total_debit += expense_row.get("debit")
+														total_credit += expense_row.get("credit")
+										total_expense = total_debit - total_credit
 
-								else:
-									total_expense = 0
+									else:
+										total_expense = 0
 
-								report_row["actual_expense_{0}".format(fy_field_name)] = total_expense
-								total_operational_expense_actual = total_operational_expense_actual + total_expense
+									report_row["actual_expense_{0}".format(fy_field_name)] = total_expense
+									total_operational_expense_actual = total_operational_expense_actual + total_expense
 
-								# Calculating Variance and Percentages 
+									# Calculating Variance and Percentages 
 
-								budget_variance = report_row["budget_{0}".format(fy_field_name)] - report_row["actual_expense_{0}".format(fy_field_name)]
-								receipt_variance = report_row["total_receipt_{0}".format(fy_field_name)] - report_row["actual_expense_{0}".format(fy_field_name)]
-								report_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
-								report_row["receipt_variance_{0}".format(fy_field_name)] = receipt_variance
+									budget_variance = report_row["budget_{0}".format(fy_field_name)] - report_row["actual_expense_{0}".format(fy_field_name)]
+									receipt_variance = report_row["total_receipt_{0}".format(fy_field_name)] - report_row["actual_expense_{0}".format(fy_field_name)]
+									report_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
+									report_row["receipt_variance_{0}".format(fy_field_name)] = receipt_variance
 
-								if report_row["budget_{0}".format(fy_field_name)] > 0:
-									spent_as_percent_against_budget = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["budget_{0}".format(fy_field_name)]
-								else:
-									spent_as_percent_against_budget = 0
-								report_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = spent_as_percent_against_budget
+									if report_row["budget_{0}".format(fy_field_name)] > 0:
+										spent_as_percent_against_budget = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["budget_{0}".format(fy_field_name)]
+									else:
+										spent_as_percent_against_budget = 0
+									report_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = spent_as_percent_against_budget
 
-								if report_row["total_receipt_{0}".format(fy_field_name)] > 0:
-									spent_as_percent_against_receipt = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["total_receipt_{0}".format(fy_field_name)]
-								else:
-									spent_as_percent_against_receipt = 0
-								report_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = spent_as_percent_against_receipt
+									if report_row["total_receipt_{0}".format(fy_field_name)] > 0:
+										spent_as_percent_against_receipt = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["total_receipt_{0}".format(fy_field_name)]
+									else:
+										spent_as_percent_against_receipt = 0
+									report_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = spent_as_percent_against_receipt
 
-								expense_data.append(report_row)
-								cc_list.append(row.get("cost_center_for_expense"))
-								report_row["previous_year_budget_variance"] = report_row.get("budget_variance_{0}".format(fy_field_name))
-								report_row["previous_year_receipt_variance"] = report_row.get("receipt_variance_{0}".format(fy_field_name))
+									expense_data.append(report_row)
+									cc_list.append(row.get("cost_center_for_expense"))
+									report_row["previous_year_budget_variance"] = report_row.get("budget_variance_{0}".format(fy_field_name))
+									report_row["previous_year_receipt_variance"] = report_row.get("receipt_variance_{0}".format(fy_field_name))
+									total_balance_budget = total_balance_budget + report_row.get("budget_variance_{0}".format(fy_field_name))
+									total_available_fund = total_available_fund + report_row.get("receipt_variance_{0}".format(fy_field_name))
 
-								fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + total_expense
+									fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + total_expense
 
-							# else :
-							# 	for existing_expense_row in expense_data:
-							# 		if row.cost_center_for_expense == existing_expense_row.get("description"):
-							# 			existing_expense_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = existing_expense_row.get("previous_year_budget_variance")
-							# 			existing_expense_row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = existing_expense_row.get("previous_year_receipt_variance")
-
-							# 			if row.project_budget not in pb_list:
-							# 				pb_list.append(row.project_budget)
-
-							# 			if existing_expense_row.get("budget_{0}".format(fy_field_name)) :
-							# 				existing_expense_row["budget_{0}".format(fy_field_name)] = existing_expense_row.get("budget_{0}".format(fy_field_name)) + row.amount
-							# 				if row.project_budget not in pb_list:
-							# 					pb_list.append(row.project_budget)
-							# 				existing_expense_row["project_budget"] = ",".join(pb_list)
-							# 			else:
-							# 				existing_expense_row["budget_{0}".format(fy_field_name)] = row.amount
-
-							# 			existing_expense_row["balance_budget_{0}".format(fy_field_name)] = existing_expense_row.get("budget_{0}".format(fy_field_name)) + existing_expense_row.get("previous_year_budget_variance")
-							# 			total_balance_budget = total_balance_budget + existing_expense_row.get("balance_budget_{0}".format(fy_field_name))
-							# 			# Calculating Total Receipt For Operational Expense Cost Center Wise
-
-							# 			cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
-							# 			if existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) :
-							# 				existing_expense_row["total_receipt_{0}".format(fy_field_name)] = existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) + cost_center_wise_receipt
-							# 			else:
-							# 				existing_expense_row["total_receipt_{0}".format(fy_field_name)] = cost_center_wise_receipt
-										
-							# 			existing_expense_row["balance_receipt_{0}".format(fy_field_name)] = existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) + existing_expense_row.get("previous_year_receipt_variance")
-							# 			total_available_fund = total_available_fund + existing_expense_row.get("balance_receipt_{0}".format(fy_field_name))
-							# 			# Calculating Actual Expense For Operational Expense Cost Center Wise
-
-							# 			company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
-							# 			filters_of_expenses_for_general_ledger = frappe._dict({
-							# 				"company": row.company,
-							# 				"from_date": report_from_date,
-							# 				"to_date": report_to_date,
-							# 				"account":[company_default_expense_account],
-							# 				"cost_center":[row.cost_center_for_expense],
-							# 				"group_by": group_by,
-							# 				"include_dimensions": include_dimensions,
-							# 				"include_default_book_entries": include_default_book_entries
-							# 			})
-
-							# 			gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
-
-							# 			if len(gl_report_data_for_expenses)>0:
-							# 				total_debit = 0
-							# 				total_credit = 0
-							# 				for expense_row in gl_report_data_for_expenses[1]:
-							# 					if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-							# 						if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
-							# 							total_debit += expense_row.get("debit")
-							# 							total_credit += expense_row.get("credit")
-							# 				total_expense = total_debit - total_credit
+							else :
+								for existing_expense_row in expense_data:
+									if cc == existing_expense_row.get("description"):			
+										if cc not in processed_cc_in_current_fy:
+											# -----------------------------------------------------------
+											# SCENARIO 2: Next FY, Existing Cost Center 
+											# -----------------------------------------------------------
+											processed_cc_in_current_fy.append(cc)
 											
-							# 			else:
-							# 				total_expense = 0
-							# 			existing_expense_row["actual_expense_{0}".format(fy_field_name)] = (existing_expense_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + total_expense
-							# 			total_operational_expense_actual = total_operational_expense_actual + total_expense
+											# 1. Fetch the True Carry Forward from the PREVIOUS loop FIRST
+											cf_budget = existing_expense_row.get("previous_year_budget_variance") or 0
+											cf_receipt = existing_expense_row.get("previous_year_receipt_variance") or 0
 
-							# 			# Calculating Variance and Percentages 
+											if previous_fy and current_fy != previous_fy:
+												existing_expense_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = cf_budget
+												existing_expense_row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = cf_receipt
+												
+												# ADD to the grand total for this FY safely
+												total_carry_forward_budget += cf_budget
+												total_carry_forward_receipt += cf_receipt
 
-							# 			budget_variance = existing_expense_row["balance_budget_{0}".format(fy_field_name)] - existing_expense_row["actual_expense_{0}".format(fy_field_name)]
-							# 			receipt_variance = existing_expense_row["balance_receipt_{0}".format(fy_field_name)] - existing_expense_row["actual_expense_{0}".format(fy_field_name)]
+											if row.project_budget not in pb_list:
+												pb_list.append(row.project_budget)
 
-							# 			existing_expense_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
-							# 			existing_expense_row["receipt_variance_{0}".format(fy_field_name)] = receipt_variance
+											if existing_expense_row.get("budget_{0}".format(fy_field_name)) :
+												existing_expense_row["budget_{0}".format(fy_field_name)] = existing_expense_row.get("budget_{0}".format(fy_field_name)) + row.amount
+												existing_expense_row["project_budget"] = ",".join(pb_list)
+											else:
+												existing_expense_row["budget_{0}".format(fy_field_name)] = row.amount
 
-							# 			if existing_expense_row["balance_budget_{0}".format(fy_field_name).format(fy_field_name)] > 0:
-							# 				spent_as_percent_against_budget = (existing_expense_row["actual_expense_{0}".format(fy_field_name)] * 100) / existing_expense_row["balance_budget_{0}".format(fy_field_name)]
-							# 			else:
-							# 				spent_as_percent_against_budget = 0
-							# 			existing_expense_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = spent_as_percent_against_budget
+											# Calculate Balances
+											existing_expense_row["balance_budget_{0}".format(fy_field_name)] = existing_expense_row.get("budget_{0}".format(fy_field_name)) + cf_budget
+											total_balance_budget += existing_expense_row["balance_budget_{0}".format(fy_field_name)]
 
-							# 			if existing_expense_row["balance_receipt_{0}".format(fy_field_name)] > 0:
-							# 				spent_as_percent_against_receipt = (existing_expense_row["actual_expense_{0}".format(fy_field_name)] * 100) / existing_expense_row["balance_receipt_{0}".format(fy_field_name)]
-							# 			else:
-							# 				spent_as_percent_against_receipt = 0
-							# 			existing_expense_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = spent_as_percent_against_receipt
+											# Calculating Total Receipt For Operational Expense Cost Center Wise
+											cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
+											existing_expense_row["total_receipt_{0}".format(fy_field_name)] = (existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + cost_center_wise_receipt
+											
+											existing_expense_row["balance_receipt_{0}".format(fy_field_name)] = existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) + cf_receipt
+											total_available_fund += existing_expense_row["balance_receipt_{0}".format(fy_field_name)]
 
-							# 			existing_expense_row["previous_year_budget_variance"] = existing_expense_row.get("budget_variance_{0}".format(fy_field_name))
-							# 			existing_expense_row["previous_year_receipt_variance"] = existing_expense_row.get("receipt_variance_{0}".format(fy_field_name))
-							# 			total_carry_forward_budget = total_carry_forward_budget + existing_expense_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name))
-							# 			total_carry_forward_receipt = total_carry_forward_receipt + existing_expense_row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name))
+											# Calculating Actual Expense For Operational Expense Cost Center Wise
+											company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
+											filters_of_expenses_for_general_ledger = frappe._dict({
+												"company": row.company, "from_date": report_from_date, "to_date": report_to_date,
+												"account": [company_default_expense_account], "cost_center": [row.cost_center_for_expense],
+												"group_by": group_by, "include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries
+											})
 
-							# 			fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + total_expense
+											gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
+
+											total_expense = 0
+											if len(gl_report_data_for_expenses)>0:
+												total_debit = 0
+												total_credit = 0
+												for expense_row in gl_report_data_for_expenses[1]:
+													if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
+														if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
+															total_debit += expense_row.get("debit")
+															total_credit += expense_row.get("credit")
+												total_expense = total_debit - total_credit
+												
+											existing_expense_row["actual_expense_{0}".format(fy_field_name)] = (existing_expense_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + total_expense
+											total_operational_expense_actual += total_expense
+											fy_wise_total_expenses_for_overhead += total_expense
+
+											# Calculating Variance and Percentages 
+											budget_variance = existing_expense_row["balance_budget_{0}".format(fy_field_name)] - existing_expense_row["actual_expense_{0}".format(fy_field_name)]
+											receipt_variance = existing_expense_row["balance_receipt_{0}".format(fy_field_name)] - existing_expense_row["actual_expense_{0}".format(fy_field_name)]
+											
+											existing_expense_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
+											existing_expense_row["receipt_variance_{0}".format(fy_field_name)] = receipt_variance
+
+											if existing_expense_row["balance_budget_{0}".format(fy_field_name)] > 0:
+												existing_expense_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = (existing_expense_row["actual_expense_{0}".format(fy_field_name)] * 100) / existing_expense_row["balance_budget_{0}".format(fy_field_name)]
+											else:
+												existing_expense_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = 0
+
+											if existing_expense_row["balance_receipt_{0}".format(fy_field_name)] > 0:
+												existing_expense_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = (existing_expense_row["actual_expense_{0}".format(fy_field_name)] * 100) / existing_expense_row["balance_receipt_{0}".format(fy_field_name)]
+											else:
+												existing_expense_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = 0
+
+											# 2. Store this NEW variance safely for the NEXT Fiscal Year
+											existing_expense_row["previous_year_budget_variance"] = budget_variance
+											existing_expense_row["previous_year_receipt_variance"] = receipt_variance
+
+										else:
+											# -----------------------------------------------------------
+											# SCENARIO 3: Same FY, Repeated Cost Center 
+											# No GL calls, No carry forward calculations. Just addition.
+											# -----------------------------------------------------------
+											existing_expense_row["budget_{0}".format(fy_field_name)] = (existing_expense_row.get("budget_{0}".format(fy_field_name)) or 0) + row.amount
+											total_balance_budget += row.amount
+
+											cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
+											existing_expense_row["total_receipt_{0}".format(fy_field_name)] = (existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + cost_center_wise_receipt
+											total_available_fund += cost_center_wise_receipt
+											
+											# Update Balances
+											existing_expense_row["balance_budget_{0}".format(fy_field_name)] = (existing_expense_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + existing_expense_row["budget_{0}".format(fy_field_name)]
+											existing_expense_row["balance_receipt_{0}".format(fy_field_name)] = (existing_expense_row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) or 0) + existing_expense_row["total_receipt_{0}".format(fy_field_name)]
+
+											# Recalculate Variances
+											actual_exp = existing_expense_row.get("actual_expense_{0}".format(fy_field_name)) or 0
+											budget_variance = existing_expense_row["balance_budget_{0}".format(fy_field_name)] - actual_exp
+											receipt_variance = existing_expense_row["balance_receipt_{0}".format(fy_field_name)] - actual_exp
+											
+											existing_expense_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
+											existing_expense_row["receipt_variance_{0}".format(fy_field_name)] = receipt_variance
+
+											# Overwrite the stored previous year variance with this newly expanded variance
+											existing_expense_row["previous_year_budget_variance"] = budget_variance
+											existing_expense_row["previous_year_receipt_variance"] = receipt_variance									
+
+										fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + total_expense
 
 
 					for row in expense_data:
@@ -457,7 +497,7 @@ def get_data(filters):
 									"budget_{0}".format(fy_field_name): total_carry_forward_budget + total_operational_expense_budget
 								})
 								projects_used_in_overhead.append(project)
-
+					previous_fy = current_fy
 	print(total_row,"<------total_row after expense")
 	print(data_for_overhead,"<--------data_for_overhead after Expense")
 	# ==============================================================

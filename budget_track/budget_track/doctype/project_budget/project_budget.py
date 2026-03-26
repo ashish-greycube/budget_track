@@ -28,6 +28,11 @@ class ProjectBudget(Document):
 			for row in self.particulars_for_expenses:
 				expense_percentage_cc_wise = ( row.amount * 100 ) / self.total_expenses
 				row.percentage_allocation = expense_percentage_cc_wise
+				for child_row in self.particulars_for_expenses:
+					if child_row.description == row.description and row.idx!=child_row.idx:
+						print(child_row.idx)
+						if child_row.cost_center == row.cost_center:
+							frappe.throw("Row {0}: You cannot select expense account <b>{1}</b> for cost center <b>{2}</b> again.".format(child_row.idx, child_row.description, child_row.cost_center))
 	
 	@frappe.whitelist()
 	def fetch_cost_centers(self):
