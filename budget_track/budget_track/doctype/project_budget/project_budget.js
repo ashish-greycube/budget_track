@@ -43,6 +43,27 @@ frappe.ui.form.on("Project Budget", {
         
 	},
 
+    company(frm){
+        frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
+        .then(r => {
+            console.log(r.message.custom_default_budget_expense_account,"===",frm.doc.company)
+            if (r.message.custom_default_budget_expense_account == null || r.message.custom_default_budget_expense_account == ""){
+                frappe.throw(__("Please set Company Default Expense Account in Company Doctype"))
+            } else {
+                console.log("IN ELSE")
+                frm.set_query("description", "particulars_for_expenses", function(doc){
+                return {
+                    filters: {
+                        "company": frm.doc.company,
+                        "parent_account":r.message.custom_default_budget_expense_account,
+                        "is_group":0
+                    },
+                }
+            })
+            }
+        })
+    },
+
     refresh(frm) {
         frappe.db.get_list("Fiscal Year Wise Project Budget Allocation", {
             fields: ['project_budget'],
@@ -67,24 +88,24 @@ frappe.ui.form.on("Project Budget", {
             frm.add_custom_button(__('Fiscal Year Wise'), () => show_budget_vs_actual_consolidate_report(frm,"FY Wise"),__('Budget/Actual'));
         }
 
-        frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
-        .then(r => {
-            console.log(r.message.custom_default_budget_expense_account,"===",frm.doc.company)
-            if (r.message.custom_default_budget_expense_account == null || r.message.custom_default_budget_expense_account == ""){
-                frappe.throw(__("Please set Company Default Expense Account in Company Doctype"))
-            } else {
-                console.log("IN ELSE")
-                frm.set_query("description", "particulars_for_expenses", function(doc){
-                return {
-                    filters: {
-                        "company": frm.doc.company,
-                        "parent_account":r.message.custom_default_budget_expense_account,
-                        "is_group":0
-                    },
-                }
-            })
-            }
-        })
+        // frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
+        // .then(r => {
+        //     console.log(r.message.custom_default_budget_expense_account,"===",frm.doc.company)
+        //     if (r.message.custom_default_budget_expense_account == null || r.message.custom_default_budget_expense_account == ""){
+        //         frappe.throw(__("Please set Company Default Expense Account in Company Doctype"))
+        //     } else {
+        //         console.log("IN ELSE")
+        //         frm.set_query("description", "particulars_for_expenses", function(doc){
+        //         return {
+        //             filters: {
+        //                 "company": frm.doc.company,
+        //                 "parent_account":r.message.custom_default_budget_expense_account,
+        //                 "is_group":0
+        //             },
+        //         }
+        //     })
+        //     }
+        // })
     },
 
     fetch_cost_centers(frm) {
