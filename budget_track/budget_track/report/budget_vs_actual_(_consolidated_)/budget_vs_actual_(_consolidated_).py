@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, cstr, today, flt
 from erpnext.accounts.report.general_ledger.general_ledger import execute as gl_execute
+from budget_track.api import get_child_cash_account_of_company
 
 
 def execute(filters=None):
@@ -183,8 +184,9 @@ def get_data(filters):
 							for expense_row in gl_report_data_for_expenses[1]:
 								if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
 									if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
-										total_debit += expense_row.get("debit")
-										total_credit += expense_row.get("credit")
+										if expense_row.get("against") and expense_row.get("against") != row.grant_ledger_account:
+											total_debit += expense_row.get("debit")
+											total_credit += expense_row.get("credit")
 							total_expense = total_debit - total_credit
 						else:
 							total_expense = 0
@@ -844,15 +846,32 @@ def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger
 		"include_dimensions": include_dimensions,
 		"include_default_book_entries": include_default_book_entries
 	})
-
+	### consider in receipt if any of the below account list is used in against account in General Ledger report
+	receipt_cash_account_list = get_child_cash_account_of_company(company)
+	company_abbr = frappe.db.get_value("Company",company,"abbr")
 	gl_report_data_for_receipt = gl_execute(filters_of_receipt_for_general_ledger)
-
+	print(gl_report_data_for_receipt[1],"++++++++++++================+++++++++++++++++++++++================+++++++++++++++++++++++==========-----------------------")
 	if len(gl_report_data_for_receipt)>0:
 		total_debit = 0
 		total_credit = 0
 		for d in gl_report_data_for_receipt[1]:
-			total_debit += d.get("debit") if d.get("voucher_subtype") == "Bank Entry" else 0
-			total_credit += d.get("credit") if d.get("voucher_subtype") == "Bank Entry" else 0
+			print(d.get("against"),"----",type(d.get("against")))
+			accounts = d.get("against")
+			abbr_string = "- "+company_abbr+", "
+			if accounts:
+				x = accounts.count(abbr_string)
+				print(x,"--------xx")
+				if x > 0:
+					# ### below steps to get list of ledgers, also handles that ledgers which have "," in their id
+					# original_string_before_replace = company_abbr+", "
+					# new_string_after_replace = company_abbr+"|"
+					# modified_accounts = accounts.replace(original_string_before_replace,new_string_after_replace)
+					# accounts_list = modified_accounts.split("|")
+					pass
+				else :
+					total_debit += d.get("debit") if accounts in receipt_cash_account_list else 0
+					total_credit += d.get("credit") if accounts in receipt_cash_account_list else 0
+
 		total_receipt = total_credit - total_debit
 	else:
 		total_receipt = 0

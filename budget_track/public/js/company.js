@@ -35,6 +35,14 @@ frappe.ui.form.on("Company", {
                 },
             }
         })
+        frm.set_query("custom_receipt_against_account", function (doc) {
+            return {
+                filters: {
+                    "company": doc.name,
+                    "is_group":1
+                },
+            }
+        })
 
         cur_frm.fields_dict.custom_default_budget_group_ledger_for_investment.get_query = function (doc) {
             return {
