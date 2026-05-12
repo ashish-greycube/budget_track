@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"8Vl-3FiF2Q\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Project Budget</span>\",\"col\":12}},{\"id\":\"zMjJHQtICo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Project Budget\",\"col\":3}},{\"id\":\"DLdplkerZD\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Fiscal Year Wise Project Budget Allocation\",\"col\":3}},{\"id\":\"0BZixbT-5C\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"bMMMQeT5Gw\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"XPJBWiBbdI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Check Budget Allocation\",\"col\":3}},{\"id\":\"WO5eu7T2v4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Budget Vs Actual ( Consolidated )\",\"col\":3}}]",
+ "content": "[{\"id\":\"8Vl-3FiF2Q\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Project Budget</span>\",\"col\":12}},{\"id\":\"zMjJHQtICo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Project Budget\",\"col\":3}},{\"id\":\"DLdplkerZD\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Fiscal Year Wise Project Budget Allocation\",\"col\":3}},{\"id\":\"0BZixbT-5C\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"bMMMQeT5Gw\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"XPJBWiBbdI\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Check Budget Allocation\",\"col\":3}},{\"id\":\"WO5eu7T2v4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Budget Vs Actual ( Consolidated )\",\"col\":3}},{\"id\":\"QmB1xxS4zX\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"V2JjkqeMDG\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Budget Vs Actual\",\"col\":3}}]",
  "creation": "2026-01-09 14:11:49.064116",
  "custom_blocks": [],
  "docstatus": 0,
@@ -13,7 +13,7 @@
  "is_hidden": 0,
  "label": "Project Budgeting",
  "links": [],
- "modified": "2026-01-09 15:39:58.163908",
+ "modified": "2026-05-12 13:28:06.454416",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Project Budgeting",
@@ -25,6 +25,14 @@
  "roles": [],
  "sequence_id": 39.0,
  "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Budget Vs Actual",
+   "link_to": "Budget Vs Actual",
+   "report_ref_doctype": "Stock Ledger Entry",
+   "type": "Report"
+  },
   {
    "color": "Grey",
    "doc_view": "List",
