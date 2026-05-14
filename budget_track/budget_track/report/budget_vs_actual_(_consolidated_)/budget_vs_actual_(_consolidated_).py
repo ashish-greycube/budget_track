@@ -80,6 +80,7 @@ def get_columns(filters):
 def get_data(filters):
 	max_description_length = 0
 	project_budget = filters.get("project_budget")
+	company = filters.get("company")
 
 	# Initializing Total Variables
 	total_budget = 0
@@ -134,6 +135,37 @@ def get_data(filters):
 								tpb.name = tpfe.parent
 							WHERE tpb.name = '{project}'
 						""",as_dict= True)
+			
+			""" Note : fetching other child cost centers of project parent cost center which are not linked in Particulars for Expenses table because 
+			there can be expenses which are not allocated in Particulars for Expenses table but we need to consider those expenses in report 
+			if there are any expenses against those cost centers in general ledger. So fetching those cost centers and then calculating expenses for 
+			those cost centers and showing in report with project budget name but without amount in budget column because those expenses are not allocated in 
+			Particulars for Expenses table."""
+
+			child_cost_centers = frappe.get_all("Cost Center",
+						filters={
+							"parent_cost_center": project,
+							"company": company
+						},
+						pluck="name")
+			if len(child_cost_centers)>0:
+				for cost_center in child_cost_centers:
+					if cost_center not in [d.cost_center_for_expense for d in project_budget_details]:
+						project_budget_details.append(frappe._dict({
+							"cost_center_for_expense": cost_center,
+							"description": "",
+							"amount": 0,
+							"percentage_allocation": 0,
+							"name": project_budget_details[0].name,
+							"company": project_budget_details[0].company,
+							"project_start_date": project_budget_details[0].project_start_date,
+							"grant_ledger_account": project_budget_details[0].grant_ledger_account,
+							"capex": project_budget_details[0].capex,
+							"startup_investment": project_budget_details[0].startup_investment,
+							"total_expenses": project_budget_details[0].total_expenses,
+							"expense_percentage": project_budget_details[0].expense_percentage,
+							"total_budget": project_budget_details[0].total_budget
+						}))
 			if len(project_budget_details)>0:
 				total_operational_expense_budget = total_operational_expense_budget + project_budget_details[0].total_expenses
 
@@ -836,6 +868,7 @@ def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger
 	include_dimensions = 1
 	include_default_book_entries = 1
 
+	total_receipt = 0
 	filters_of_receipt_for_general_ledger = frappe._dict({
 		"company": company,
 		"from_date": getdate(start_date),
@@ -849,28 +882,45 @@ def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger
 	### consider in receipt if any of the below account list is used in against account in General Ledger report
 	receipt_cash_account_list = get_child_cash_account_of_company(company)
 	company_abbr = frappe.db.get_value("Company",company,"abbr")
+	bank_charges_account = frappe.db.get_value("Company",company,"custom_bank_charges_account")
+	if not bank_charges_account:
+		frappe.throw("Please set Bank Charges Account in Company Master")
+
 	gl_report_data_for_receipt = gl_execute(filters_of_receipt_for_general_ledger)
 	print(gl_report_data_for_receipt[1],"++++++++++++================+++++++++++++++++++++++================+++++++++++++++++++++++==========-----------------------")
-	if len(gl_report_data_for_receipt)>0:
+	if len(gl_report_data_for_receipt)>1 and gl_report_data_for_receipt[1] and len(gl_report_data_for_receipt[1])>0:
 		total_debit = 0
 		total_credit = 0
+
 		for d in gl_report_data_for_receipt[1]:
-			print(d.get("against"),"----",type(d.get("against")))
 			accounts = d.get("against")
-			abbr_string = "- "+company_abbr+", "
+
 			if accounts:
-				x = accounts.count(abbr_string)
-				print(x,"--------xx")
-				if x > 0:
-					# ### below steps to get list of ledgers, also handles that ledgers which have "," in their id
-					# original_string_before_replace = company_abbr+", "
-					# new_string_after_replace = company_abbr+"|"
-					# modified_accounts = accounts.replace(original_string_before_replace,new_string_after_replace)
-					# accounts_list = modified_accounts.split("|")
-					pass
-				else :
-					total_debit += d.get("debit") if accounts in receipt_cash_account_list else 0
-					total_credit += d.get("credit") if accounts in receipt_cash_account_list else 0
+				# Safely split accounts string to handle ledgers that have "," in their name
+				# Example: "Bank Charges - C, Cash, and Cash Equivalents - C" 
+				# Becomes: ["Bank Charges - C", "Cash, and Cash Equivalents - C"]
+				original_string_before_replace = " - "+company_abbr+", "
+				new_string_after_replace = " - "+company_abbr+"|"
+
+				modified_accounts = accounts.replace(original_string_before_replace, new_string_after_replace)
+				accounts_list = [acc.strip() for acc in modified_accounts.split("|") if acc.strip()]
+				
+				# CONDITION 1: Exactly 1 account in 'against'
+				if len(accounts_list) == 1:
+					if accounts_list[0] in receipt_cash_account_list:
+						total_debit += d.get("debit", 0)
+						total_credit += d.get("credit", 0)
+				
+				# CONDITION 2: Exactly 2 accounts in 'against'
+				elif len(accounts_list) == 2:
+					if bank_charges_account in accounts_list:
+						# Identify which one is the bank charges, and which is the "other" account
+						other_account = accounts_list[0] if accounts_list[1] == bank_charges_account else accounts_list[1]
+						
+						# Check if the "other" account is in the cash account list
+						if other_account in receipt_cash_account_list:
+							total_debit += d.get("debit", 0)
+							total_credit += d.get("credit", 0)
 
 		total_receipt = total_credit - total_debit
 	else:

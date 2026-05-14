@@ -43,6 +43,13 @@ frappe.ui.form.on("Company", {
                 },
             }
         })
+        frm.set_query("custom_bank_charges_account", function (doc) {
+            return {
+                filters: {
+                    "company": doc.name
+                },
+            }
+        })
 
         cur_frm.fields_dict.custom_default_budget_group_ledger_for_investment.get_query = function (doc) {
             return {
