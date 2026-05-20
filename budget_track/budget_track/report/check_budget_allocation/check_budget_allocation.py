@@ -156,7 +156,8 @@ def get_data(filters):
 			total_allocated = 0
 			for year in fiscal_year_list:
 				print(year,"----year")
-				total_allocated = total_allocated + ele.get(year)
+				if ele.get(year):
+					total_allocated = total_allocated + ele.get(year)
 			ele["total_allocated"] = total_allocated
 			ele["variance_in_allocation"] = ele.get("total_budget") - total_allocated
 	return report_data
