@@ -211,34 +211,34 @@ def get_data(filters):
 					those cost centers and showing in report with project budget name but without amount in budget column because those expenses are not allocated in 
 					Particulars for Expenses table."""
 
-					child_cost_centers = frappe.get_all("Cost Center",
-								filters={
-									"parent_cost_center": project,
-									"company": company
-								},
-								pluck="name")
-					if len(child_cost_centers)>0:
-						for cost_center in child_cost_centers:
-							if cost_center not in [d.cost_center_for_expense for d in project_budget_allocation_details]:
-								project_budget_allocation_details.append(frappe._dict({
-									"cost_center_for_expense": cost_center,
-									"description": "",
-									"amount": 0,
-									"percentage_allocation": 0,
-									"name": project_budget_allocation_details[0].name,
-									"company": project_budget_allocation_details[0].company,
-									"project_start_date": project_budget_allocation_details[0].project_start_date,
-									"grant_ledger_account": project_budget_allocation_details[0].grant_ledger_account,
-									"total_expenses": project_budget_allocation_details[0].total_expenses,
-									"expense_percentage": project_budget_allocation_details[0].expense_percentage,
-									"year_start_date": project_budget_allocation_details[0].year_start_date,
-									"year_end_date": project_budget_allocation_details[0].year_end_date,
-									"overhead_cost_center": project_budget_allocation_details[0].overhead_cost_center,
-									"project_budget": project_budget_allocation_details[0].project_budget,
-									"fiscal_year": project_budget_allocation_details[0].fiscal_year
-								}))
-					
 					if len(project_budget_allocation_details)>0:
+						child_cost_centers = frappe.get_all("Cost Center",
+									filters={
+										"parent_cost_center": project,
+										"company": company
+									},
+									pluck="name")
+						if len(child_cost_centers)>0:
+							for cost_center in child_cost_centers:
+								if cost_center not in [d.cost_center_for_expense for d in project_budget_allocation_details]:
+									project_budget_allocation_details.append(frappe._dict({
+										"cost_center_for_expense": cost_center,
+										"description": "",
+										"amount": 0,
+										"percentage_allocation": 0,
+										"name": project_budget_allocation_details[0].name,
+										"company": project_budget_allocation_details[0].company,
+										"project_start_date": project_budget_allocation_details[0].project_start_date,
+										"grant_ledger_account": project_budget_allocation_details[0].grant_ledger_account,
+										"total_expenses": project_budget_allocation_details[0].total_expenses,
+										"expense_percentage": project_budget_allocation_details[0].expense_percentage,
+										"year_start_date": project_budget_allocation_details[0].year_start_date,
+										"year_end_date": project_budget_allocation_details[0].year_end_date,
+										"overhead_cost_center": project_budget_allocation_details[0].overhead_cost_center,
+										"project_budget": project_budget_allocation_details[0].project_budget,
+										"fiscal_year": project_budget_allocation_details[0].fiscal_year
+									}))
+					
 						total_operational_expense_budget = total_operational_expense_budget + project_budget_allocation_details[0].total_expenses
 
 						group_by = "Group by Voucher (Consolidated)"
