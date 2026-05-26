@@ -86,7 +86,8 @@ def get_data(filters):
 						INNER JOIN `tabParticulars for Expenses` tpfe ON
 							tpb.name = tpfe.parent
 						WHERE tpb.name = '{0}'
-					""".format(project_budget),as_dict= True)
+						GROUP BY tpfe.description
+					""".format(project_budget),as_dict= True,debug=1)
 	if len(project_budget_details)>0:
 		report_data.append({
 			"budget_description" : "<b>Investment</b>",
@@ -119,7 +120,7 @@ def get_data(filters):
 							tfywpba.startup_investment ,
 							tfywpba.capex,
 							tfywpba.total_expenses,
-							tpfe.amount,
+							SUM(tpfe.amount) AS amount,
 							tpfe.propsoed_utilization,
 							tpfe.description,
 							tfywpba.fiscal_year
@@ -130,8 +131,9 @@ def get_data(filters):
 							tfywpba.name = tpfe.parent
 						WHERE
 							tfywpba.project_budget = '{0}' and tfywpba.fiscal_year = '{1}'
+						GROUP BY tpfe.description
 			
-		""".format(project_budget,allocation.fiscal_year),as_dict=1)
+		""".format(project_budget,allocation.fiscal_year),as_dict=1,debug=1)
 			if len(fiscal_year_wise_allocation_data)>0:
 				for row in fiscal_year_wise_allocation_data:
 					fiscal_year_field_name = cstr(row.fiscal_year).replace("-","_")

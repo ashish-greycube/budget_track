@@ -21,6 +21,7 @@
   "overhead_percentage",
   "overhead_amount",
   "fetch_cost_centers",
+  "total_receipt",
   "section_break_cqqv",
   "particulars_for_expenses"
  ],
@@ -140,12 +141,17 @@
    "fieldname": "overhead_amount",
    "fieldtype": "Currency",
    "label": "Overhead Amount"
+  },
+  {
+   "fieldname": "total_receipt",
+   "fieldtype": "Currency",
+   "label": "Total Receipt"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-12 14:55:48.760846",
+ "modified": "2026-05-22 12:04:50.046247",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Project Budget",

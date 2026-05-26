@@ -19,6 +19,7 @@
   "expense_percentage",
   "overhead_percentage",
   "overhead_amount",
+  "total_receipt",
   "section_break_nkxx",
   "particulars_for_expenses"
  ],
@@ -115,12 +116,17 @@
    "fieldtype": "Currency",
    "label": "Total Budget",
    "read_only": 1
+  },
+  {
+   "fieldname": "total_receipt",
+   "fieldtype": "Currency",
+   "label": "Total Receipt"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-13 12:30:02.859091",
+ "modified": "2026-05-22 12:05:16.083630",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Fiscal Year Wise Project Budget Allocation",

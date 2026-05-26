@@ -6,6 +6,8 @@ from frappe import _
 from frappe.utils import getdate, cstr, today, flt
 from erpnext.accounts.report.general_ledger.general_ledger import execute as gl_execute
 from budget_track.api import get_child_cash_account_of_company
+import json
+from urllib.parse import urlencode
 
 
 def execute(filters=None):
@@ -74,7 +76,13 @@ def get_columns(filters):
 			"fieldtype": "Percent",
 			"precision": 2,
 			"width": 200
-		},	
+		},
+		{
+			"fieldname": "general_legder_url",
+			"label":_("General Ledger URL"),
+			"fieldtype": "Small Text",
+			"hidden": 1
+		}
 	]
 
 def get_data(filters):
@@ -128,7 +136,8 @@ def get_data(filters):
 								tpfe.description,
 								tpfe.amount,
 								tpfe.percentage_allocation,
-								tpfe.cost_center as cost_center_for_expense 
+								tpfe.cost_center as cost_center_for_expense,
+								tpb.total_receipt AS receipt_from_project_budget
 							FROM
 								`tabProject Budget` tpb
 							INNER JOIN `tabParticulars for Expenses` tpfe ON
@@ -169,11 +178,14 @@ def get_data(filters):
 			if len(project_budget_details)>0:
 				total_operational_expense_budget = total_operational_expense_budget + project_budget_details[0].total_expenses
 
-				group_by = "Group by Voucher (Consolidated)"
+				group_by = "Categorize by Voucher (Consolidated)"
 				include_dimensions = 1
 				include_default_book_entries = 1
 
-				total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
+				if project_budget_details[0].receipt_from_project_budget > 0:
+					total_receipt = project_budget_details[0].receipt_from_project_budget
+				else:
+					total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
 				
 				expense_receipt_amount = ( total_receipt * project_budget_details[0].expense_percentage) / 100
 				total_operational_expense_receipt = total_operational_expense_receipt + expense_receipt_amount
@@ -208,7 +220,25 @@ def get_data(filters):
 							"include_dimensions": include_dimensions,
 							"include_default_book_entries": include_default_book_entries
 						})
+						##### Adding general ledger hyperlink
+						report_filters_for_hyperlink = frappe._dict({
+							"company": row.company,
+							"account":json.dumps([company_default_expense_account]),
+							"cost_center":json.dumps([row.cost_center_for_expense]),
+							"group_by": group_by,
+							"include_dimensions": include_dimensions,
+							"include_default_book_entries": include_default_book_entries,
+							"from_date": str(row.project_start_date),
+							"to_date": str(getdate(today()))
+						})
+						
+						query_string = urlencode(report_filters_for_hyperlink)
 
+						report_link = (
+								"/app/query-report/General%20Ledger"
+							) + "?" + query_string
+						
+						report_row["general_legder_url"] = report_link
 						gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
 						if len(gl_report_data_for_expenses)>0:
 							total_debit = 0
@@ -216,7 +246,14 @@ def get_data(filters):
 							for expense_row in gl_report_data_for_expenses[1]:
 								if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
 									if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
-										if expense_row.get("against") and expense_row.get("against") != row.grant_ledger_account:
+										### check entry is journal entry or not as check box is in Journal Entry only
+										if expense_row.get("voucher_type") == "Journal Entry":
+											ignore_in_budget_vs_actual = frappe.get_cached_value("Journal Entry",expense_row.get("voucher_no"),"custom_to_ignore_in_budget_vs_actual")
+										else :
+											### If it is not journal entry then always consider...
+											ignore_in_budget_vs_actual = 0
+
+										if ignore_in_budget_vs_actual == 0:
 											total_debit += expense_row.get("debit")
 											total_credit += expense_row.get("credit")
 							total_expense = total_debit - total_credit
@@ -354,7 +391,8 @@ def get_data(filters):
 								tpb.startup_investment,
 								tpb.startup_investment_percentage,
 								tpb.total_budget,
-								tpb.capex
+								tpb.capex,
+								tpb.total_receipt AS receipt_from_project_budget
 							FROM
 								`tabProject Budget` tpb
 							WHERE tpb.name = '{0}'
@@ -362,11 +400,15 @@ def get_data(filters):
 			if len(project_budget_details)>0:
 				total_investment_budget = total_investment_budget + project_budget_details[0].startup_investment
 
-				total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
+				if project_budget_details[0].receipt_from_project_budget > 0:
+					total_receipt = project_budget_details[0].receipt_from_project_budget
+				else:
+					total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
+				
 				receipt_amount_for_investment = ( total_receipt * project_budget_details[0].startup_investment_percentage ) / 100
 				total_investment_receipt = total_investment_receipt + receipt_amount_for_investment
 
-				group_by = "Group by Account"
+				group_by = "Categorize by Account"
 				include_dimensions = 1
 				include_default_book_entries = 1
 
@@ -403,6 +445,27 @@ def get_data(filters):
 								report_row["budget"] = 0
 								report_row["total_receipt"] = 0
 								total_investment_actual = total_investment_actual + expense
+
+								##### Adding general ledger hyperlink filters in report row for investment entry
+
+								report_filters_for_hyperlink = frappe._dict({
+									"company": project_budget_details[0].company,
+									"account": json.dumps(investment_group_ledger_accounts),
+									"cost_center": json.dumps([project_budget_details[0].name]),
+									"group_by": group_by,
+									"include_dimensions": include_dimensions,
+									"include_default_book_entries": include_default_book_entries,
+									"from_date": str(project_budget_details[0].project_start_date),
+									"to_date": str(getdate(today()))
+								})
+
+								query_string = urlencode(report_filters_for_hyperlink)
+
+								report_link = (
+										"/app/query-report/General%20Ledger"
+									) + "?" + query_string
+								
+								report_row["general_legder_url"] = report_link
 								# Calculating Variance and Percentages 
 
 								budget_variance = report_row["budget"] - report_row["actual_expense"]
@@ -428,6 +491,25 @@ def get_data(filters):
 										expense = existing_investment_row.get("actual_expense") + (investment_row.get("debit") - investment_row.get("credit"))
 										if expense > 0 and project_budget_details[0].name not in pb_list:
 											pb_list.append(project_budget_details[0].name)
+										
+											report_filters_for_hyperlink = frappe._dict({
+												"company": project_budget_details[0].company,
+												"account": json.dumps(investment_group_ledger_accounts),
+												"cost_center": json.dumps(pb_list),
+												"group_by": group_by,
+												"include_dimensions": include_dimensions,
+												"include_default_book_entries": include_default_book_entries,
+												"from_date": str(project_budget_details[0].project_start_date),
+												"to_date": str(getdate(today()))
+											})
+
+											query_string = urlencode(report_filters_for_hyperlink)
+
+											report_link = (
+													"/app/query-report/General%20Ledger"
+												) + "?" + query_string
+											
+											existing_investment_row["general_legder_url"] = report_link
 										existing_investment_row["project_budget"] = ", ".join(pb_list)
 										existing_investment_row["actual_expense"] = expense
 										existing_investment_row["budget_variance"] = existing_investment_row["budget"] - existing_investment_row["actual_expense"]
@@ -493,7 +575,8 @@ def get_data(filters):
 								tpb.grant_ledger_account,
 								tpb.total_budget,
 								tpb.capex,
-								tpb.capex_percentage
+								tpb.capex_percentage,
+								tpb.total_receipt AS receipt_from_project_budget
 							FROM
 								`tabProject Budget` tpb
 							WHERE tpb.name = '{0}'
@@ -501,7 +584,11 @@ def get_data(filters):
 			if len(project_budget_details)>0:
 				total_capex_budget = total_capex_budget + project_budget_details[0].capex
 
-				total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
+				if project_budget_details[0].receipt_from_project_budget > 0:
+					total_receipt = project_budget_details[0].receipt_from_project_budget
+				else:
+					total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
+
 				receipt_amount_for_capex = ( total_receipt * project_budget_details[0].capex_percentage ) / 100
 				total_capex_receipt = total_capex_receipt + receipt_amount_for_capex
 
@@ -511,6 +598,30 @@ def get_data(filters):
 				gl_list = frappe.db.get_all("GL Entry",
 							 filters={"posting_date":["between",[project_budget_details[0].project_start_date,today()]],"account":["descendants of (inclusive)",company_default_capex_account],"cost_center":["descendants of (inclusive)",project_budget_details[0].name]},
 							 fields=["sum(debit) as total_debit", "sum(credit) as total_credit", "account","cost_center"],group_by="account")
+
+				filters_for_list_view = frappe._dict({
+					"posting_date": json.dumps([
+						"between",
+						[
+							str(project_budget_details[0].project_start_date),
+							str(today())
+						]
+					]),
+					"account": json.dumps([
+						"descendants of (inclusive)",
+						company_default_capex_account
+					]),
+					"cost_center": json.dumps([
+						"descendants of (inclusive)",
+						project_budget_details[0].name
+					])
+				})
+
+				gl_entry_link = (
+					"/app/gl-entry/view/list?"
+					+ urlencode(filters_for_list_view)
+				)
+				print(gl_entry_link,"------capex link")
 
 				if len(gl_list)>0:
 					for capex_row in gl_list:
@@ -534,6 +645,7 @@ def get_data(filters):
 								capex_report_row["project_budget"] = project_budget_details[0].name
 								capex_report_row["budget"] = 0
 								capex_report_row["actual_expense"] = capex_expense
+								capex_report_row["general_legder_url"] = gl_entry_link
 
 								# Calculating Variance and Percentages 
 
@@ -626,7 +738,7 @@ def get_data(filters):
 									WHERE tpb.name = '{0}'
 								""".format(project),as_dict= True)
 					if len(project_budget_details)>0:
-						group_by = "Group by Voucher (Consolidated)"
+						group_by = "Categorize by Voucher (Consolidated)"
 						include_dimensions = 1
 						include_default_book_entries = 1
 
@@ -670,6 +782,27 @@ def get_data(filters):
 				advance_report_row["actual_expense"] = advance_expense
 				advance_report_row["total_receipt"] = 0
 
+				##### Adding general ledger hyperlink
+				print(project_budget_list,"==================project_budget_list")
+				report_filters_for_hyperlink = frappe._dict({
+					"company": project_budget_details[0].company,
+					"account": json.dumps([account]),
+					"cost_center": json.dumps(project_budget),
+					"group_by": group_by,
+					"include_dimensions": include_dimensions,
+					"include_default_book_entries": include_default_book_entries,
+					"from_date": str(project_budget_details[0].project_start_date),
+					"to_date": str(getdate(today()))
+				})
+
+				query_string = urlencode(report_filters_for_hyperlink)
+
+				report_link = (
+						"/app/query-report/General%20Ledger"
+					) + "?" + query_string
+
+				advance_report_row["general_legder_url"] = report_link
+
 				# Calculating Variance and Percentages 
 
 				budget_variance = advance_report_row["budget"] - advance_report_row["actual_expense"]
@@ -688,6 +821,7 @@ def get_data(filters):
 				total_consumption_consider_for_overhead = total_consumption_consider_for_overhead + advance_expense
 
 				advances_data.append(advance_report_row)
+				project_budget_list = []
 
 				total_expenses_for_overhead = total_expenses_for_overhead + advance_expense
 		
@@ -718,14 +852,19 @@ def get_data(filters):
 								tpb.overhead_cost_center,
 								tpb.overhead_percentage,
 								tpb.overhead_amount,
-								tpb.total_budget
+								tpb.total_budget,
+								tpb.total_receipt AS receipt_from_project_budget		  
 							FROM
 								`tabProject Budget` tpb
 							WHERE tpb.name = '{0}'
 						""".format(project),as_dict= True)
 			if len(project_budget_details)>0:
 				total_overhead_budget = total_overhead_budget + project_budget_details[0].overhead_amount
-				total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
+
+				if project_budget_details[0].receipt_from_project_budget > 0:
+					total_receipt = project_budget_details[0].receipt_from_project_budget
+				else:
+					total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_details[0].company,project_budget_details[0].project_start_date,project_budget_details[0].grant_ledger_account,project_budget_details[0].name)
 				receipt_amount_for_overhead = ( total_receipt * project_budget_details[0].overhead_percentage ) / 100
 				total_overhead_receipt = total_overhead_receipt + receipt_amount_for_overhead
 				budget_excluding_overhead = project_budget_details[0].total_budget - project_budget_details[0].overhead_amount
@@ -794,7 +933,7 @@ def get_data(filters):
 							WHERE tpb.name = '{0}'
 						""".format(project),as_dict= True)
 			if len(project_budget_details)>0:
-				group_by = "Group by Account"
+				group_by = "Categorize by Account"
 				include_dimensions = 1
 				include_default_book_entries = 1
 
@@ -813,25 +952,53 @@ def get_data(filters):
 				if len(gl_report_data_for_income)>0:
 					for income_row in gl_report_data_for_income[1]:
 						if income_row.get("account") and income_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-							if income_row.get("account") not in account_list:
-								total_income = 0
-								income = income_row.get("credit") - income_row.get("debit")
-								total_income = total_income + income
-								income_report_row = {}
-								income_report_row["description"] = income_row.get("account")
-								income_report_row["indent"] = 1
-								income_report_row["project_budget"] = project_budget_details[0].name
-								income_report_row["budget"] = 0
-								income_report_row["total_receipt"] = income
+							if income_row.get("voucher_type") != "Period Closing Voucher":
+								### check entry is journal entry or not as check box is in Journal Entry only
+								if income_row.get("voucher_type") == "Journal Entry":
+									ignore_in_budget_vs_actual = frappe.get_cached_value("Journal Entry",income_row.get("voucher_no"),"custom_to_ignore_in_budget_vs_actual")
+								else :
+									### If it is not journal entry then always consider...
+									ignore_in_budget_vs_actual = 0
 
-								income_data.append(income_report_row)
-								account_list.append(income_row.get("account"))
-							else :
-								for existing_income_row in income_data:
-									if existing_income_row.get("description") == income_row.get("account"):
-										income = existing_income_row.get("total_receipt") + (income_row.get("credit") - income_row.get("debit"))
-										existing_income_row["total_receipt"] = income
-										total_income = total_income + (income_row.get("credit") - income_row.get("debit"))
+								if ignore_in_budget_vs_actual == 0:
+									if income_row.get("account") not in account_list:
+										total_income = 0
+										income = income_row.get("credit") - income_row.get("debit")
+										total_income = total_income + income
+										income_report_row = {}
+										income_report_row["description"] = income_row.get("account")
+										income_report_row["indent"] = 1
+										income_report_row["project_budget"] = project_budget_details[0].name
+										income_report_row["budget"] = 0
+										income_report_row["total_receipt"] = income
+
+										report_filters_for_hyperlink = frappe._dict({
+											"company": project_budget_details[0].company,
+											"account": json.dumps([company_default_income_account]),
+											"cost_center": json.dumps(project_budget),
+											"group_by": group_by,
+											"include_dimensions": include_dimensions,
+											"include_default_book_entries": include_default_book_entries,
+											"from_date": str(project_budget_details[0].project_start_date),
+											"to_date": str(getdate(today()))
+										})
+
+										query_string = urlencode(report_filters_for_hyperlink)
+
+										report_link = (
+												"/app/query-report/General%20Ledger"
+											) + "?" + query_string
+										
+										income_report_row["general_legder_url"] = report_link
+
+										income_data.append(income_report_row)
+										account_list.append(income_row.get("account"))
+									else :
+										for existing_income_row in income_data:
+											if existing_income_row.get("description") == income_row.get("account"):
+												income = existing_income_row.get("total_receipt") + (income_row.get("credit") - income_row.get("debit"))
+												existing_income_row["total_receipt"] = income
+												total_income = total_income + (income_row.get("credit") - income_row.get("debit"))
 
 				else:
 					income = 0
@@ -864,7 +1031,7 @@ def get_data(filters):
 	return report_data, columns
 
 def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger_account,cost_center):
-	group_by = "Group by Voucher (Consolidated)"
+	group_by = "Categorize by Voucher (Consolidated)"
 	include_dimensions = 1
 	include_default_book_entries = 1
 
@@ -879,12 +1046,6 @@ def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger
 		"include_dimensions": include_dimensions,
 		"include_default_book_entries": include_default_book_entries
 	})
-	### consider in receipt if any of the below account list is used in against account in General Ledger report
-	receipt_cash_account_list = get_child_cash_account_of_company(company)
-	company_abbr = frappe.db.get_value("Company",company,"abbr")
-	bank_charges_account = frappe.db.get_value("Company",company,"custom_bank_charges_account")
-	if not bank_charges_account:
-		frappe.throw("Please set Bank Charges Account in Company Master")
 
 	gl_report_data_for_receipt = gl_execute(filters_of_receipt_for_general_ledger)
 	print(gl_report_data_for_receipt[1],"++++++++++++================+++++++++++++++++++++++================+++++++++++++++++++++++==========-----------------------")
@@ -893,34 +1054,17 @@ def get_total_receipt_amount_from_general_ledger(company,start_date,grant_ledger
 		total_credit = 0
 
 		for d in gl_report_data_for_receipt[1]:
-			accounts = d.get("against")
 
-			if accounts:
-				# Safely split accounts string to handle ledgers that have "," in their name
-				# Example: "Bank Charges - C, Cash, and Cash Equivalents - C" 
-				# Becomes: ["Bank Charges - C", "Cash, and Cash Equivalents - C"]
-				original_string_before_replace = " - "+company_abbr+", "
-				new_string_after_replace = " - "+company_abbr+"|"
+			## check entry is journal entry or not as check box is in Journal Entry only
+			if d.get("voucher_type") == "Journal Entry":
+				ignore_in_budget_vs_actual = frappe.get_cached_value("Journal Entry",d.get("voucher_no"),"custom_to_ignore_in_budget_vs_actual")
+			else :
+				### If it is not journal entry then always consider...
+				ignore_in_budget_vs_actual = 0
 
-				modified_accounts = accounts.replace(original_string_before_replace, new_string_after_replace)
-				accounts_list = [acc.strip() for acc in modified_accounts.split("|") if acc.strip()]
-				
-				# CONDITION 1: Exactly 1 account in 'against'
-				if len(accounts_list) == 1:
-					if accounts_list[0] in receipt_cash_account_list:
-						total_debit += d.get("debit", 0)
-						total_credit += d.get("credit", 0)
-				
-				# CONDITION 2: Exactly 2 accounts in 'against'
-				elif len(accounts_list) == 2:
-					if bank_charges_account in accounts_list:
-						# Identify which one is the bank charges, and which is the "other" account
-						other_account = accounts_list[0] if accounts_list[1] == bank_charges_account else accounts_list[1]
-						
-						# Check if the "other" account is in the cash account list
-						if other_account in receipt_cash_account_list:
-							total_debit += d.get("debit", 0)
-							total_credit += d.get("credit", 0)
+			if ignore_in_budget_vs_actual == 0:
+				total_debit += d.get("debit")
+				total_credit += d.get("credit")
 
 		total_receipt = total_credit - total_debit
 	else:

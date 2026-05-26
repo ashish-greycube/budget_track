@@ -54,9 +54,27 @@ frappe.query_reports["Budget Vs Actual"] = {
 
 	onload: create_show_consolidate_button,
 
-	formatter: function(value, row, column, data, default_formatter) {
+	formatter:function(value, row, column, data, default_formatter) {
+
 		value = default_formatter(value, row, column, data);
-		
+
+        // 1. Check if the current column is an "actual_expense" column
+        if (column.fieldname && column.fieldname.startsWith("actual_expense_")) {
+            
+            // Extract the year part (e.g., "2023_2024" from "actual_expense_2023_2024")
+            let financial_year = column.fieldname.replace("actual_expense_", "");
+            
+            // Construct the corresponding ledger link key name
+            let link_fieldname = `general_ledger_report_link_${financial_year}`;
+
+            // 2. If the link exists in the row data, wrap it in an anchor tag
+            if (data && data[link_fieldname]) {
+                let url = data[link_fieldname];
+                
+                // Return the clickable hyperlink styled to look clean in Frappe's grid
+                return `<a href="${url}" target="_blank" style="color: var(--text-color); font-weight: bold; text-decoration: underline;">${value}</a>`;
+            }
+        }
 		if (data && column.fieldname.includes("spent_as_percent_against_budget")) {
 			let percent_value = data[column.fieldname]
 			if (percent_value > 100) {
