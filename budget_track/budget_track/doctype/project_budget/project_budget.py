@@ -27,6 +27,8 @@ class ProjectBudget(Document):
 		if len(self.particulars_for_expenses)>0:
 			for row in self.particulars_for_expenses:
 				expense_percentage_cc_wise = ( row.amount * 100 ) / self.total_expenses
+				if row.cost_center == self.overhead_cost_center:
+					frappe.throw("Row #{0} : You cannot select cost center <b>{1}</b> for Expenses".format(row.idx, self.overhead_cost_center))
 				row.percentage_allocation = expense_percentage_cc_wise
 				for child_row in self.particulars_for_expenses:
 					if child_row.description == row.description and row.idx!=child_row.idx:
@@ -40,7 +42,8 @@ class ProjectBudget(Document):
 			child_cost_centers = frappe.get_all("Cost Center",
 				filters={
 					"parent_cost_center": self.parent_cost_center_for_project,
-					"company": self.company
+					"company": self.company,
+					"name": ["!=", self.overhead_cost_center]
 				},
 				fields=["name"])
 			return child_cost_centers

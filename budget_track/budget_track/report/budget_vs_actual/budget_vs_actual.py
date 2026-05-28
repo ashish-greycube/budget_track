@@ -274,7 +274,7 @@ def get_data(filters):
 						if project_budget_allocation_details[0].receipt_from_project_budget > 0:
 							total_receipt = project_budget_allocation_details[0].receipt_from_project_budget
 						else:
-							total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_allocation_details[0].company, report_from_date, report_to_date, project_budget_allocation_details[0].grant_ledger_account, project_budget_allocation_details[0].project_budget)
+							total_receipt = 0
 						
 						expense_receipt_amount = ( total_receipt * project_budget_allocation_details[0].expense_percentage) / 100
 						total_operational_expense_receipt = total_operational_expense_receipt + expense_receipt_amount
@@ -683,7 +683,7 @@ def get_data(filters):
 						if project_budget_allocation_details[0].receipt_from_project_budget > 0:
 							total_receipt = project_budget_allocation_details[0].receipt_from_project_budget
 						else:
-							total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_allocation_details[0].company,report_from_date,report_to_date,project_budget_allocation_details[0].grant_ledger_account,project_budget_allocation_details[0].project_budget)
+							total_receipt = 0
 						
 						receipt_amount_for_investment = ( total_receipt * project_budget_allocation_details[0].startup_investment_percentage ) / 100
 						total_investment_receipt = total_investment_receipt + receipt_amount_for_investment
@@ -895,7 +895,7 @@ def get_data(filters):
 						if project_budget_allocation_details[0].receipt_from_project_budget > 0:
 							total_receipt = project_budget_allocation_details[0].receipt_from_project_budget
 						else:
-							total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_allocation_details[0].company,report_from_date,report_to_date,project_budget_allocation_details[0].grant_ledger_account,project_budget_allocation_details[0].name)
+							total_receipt = 0
 
 						receipt_amount_for_capex = ( total_receipt * project_budget_allocation_details[0].capex_percentage ) / 100
 						total_capex_receipt = total_capex_receipt + receipt_amount_for_capex
@@ -1316,7 +1316,7 @@ def get_data(filters):
 						if project_budget_allocation_details[0].receipt_from_project_budget > 0:
 							total_receipt = project_budget_allocation_details[0].receipt_from_project_budget
 						else:
-							total_receipt = get_total_receipt_amount_from_general_ledger(project_budget_allocation_details[0].company,report_from_date,report_to_date,project_budget_allocation_details[0].grant_ledger_account,project_budget_allocation_details[0].name)
+							total_receipt = 0
 							
 						receipt_amount_for_overhead = ( total_receipt * project_budget_allocation_details[0].overhead_percentage ) / 100
 						total_overhead_receipt = total_overhead_receipt + receipt_amount_for_overhead
