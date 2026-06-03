@@ -220,12 +220,13 @@ def get_data(filters):
 					if there are any expenses against those cost centers in general ledger. So fetching those cost centers and then calculating expenses for 
 					those cost centers and showing in report with project budget name but without amount in budget column because those expenses are not allocated in 
 					Particulars for Expenses table."""
-
+					overhead_cost_center = frappe.db.get_value("Project Budget",project,"overhead_cost_center")
 					if len(project_budget_allocation_details)>0:
 						child_cost_centers = frappe.get_all("Cost Center",
 									filters={
 										"parent_cost_center": project,
-										"company": company
+										"company": company,
+										"name": ["!=", overhead_cost_center]
 									},
 									pluck="name")
 						if len(child_cost_centers)>0:
