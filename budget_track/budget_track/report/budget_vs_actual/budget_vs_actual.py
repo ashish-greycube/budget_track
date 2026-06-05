@@ -12,10 +12,7 @@ from urllib.parse import urlencode
 
 def execute(filters=None):
 	columns, data = [], []
-
-	# columns = get_columns(filters)
 	data, columns = get_data(filters)
-
 	return columns, data
 
 def get_columns(filters):
@@ -25,14 +22,7 @@ def get_columns(filters):
 			"label":_("Description"),
 			"fieldtype": "Data",
 			"width": 400
-		},
-		# {
-		# 	"fieldname": "project_budget",
-		# 	"label":_("Project Budget"),
-		# 	"fieldtype": "Data",
-		# 	"options":"Project Budget",
-		# 	"width": 200
-		# }	
+		}
 	]
 	current_fy = None
 	fiscal_year_list = frappe.db.get_all("Fiscal Year",
@@ -40,7 +30,7 @@ def get_columns(filters):
 											 "year_end_date": ["between", [filters.get("from_date"),filters.get("to_date")]]},
 									fields=["name"],
 									order_by="year_start_date asc")
-	print(fiscal_year_list,"=========>>>>>>")
+	
 	if len(fiscal_year_list)>0:
 		for fy in fiscal_year_list:
 			fy_field_name = (fy.name).replace("-","_")
@@ -135,9 +125,9 @@ def get_columns(filters):
 
 def get_data(filters):
 	max_description_length = 0
-	project_budget = filters.get("project_budget")
+	project_budget = filters.get("project_budget") or []
 	company = filters.get("company")
-
+	
 	total_consumption = 0
 	fiscal_year_list = frappe.db.get_all("Fiscal Year",
 									or_filters={"year_start_date": ["between", [filters.get("from_date"),filters.get("to_date")]],
@@ -145,21 +135,69 @@ def get_data(filters):
 									fields=["name","year_start_date"],
 									order_by="year_start_date asc")
 
-	report_data = []
-	expense_data = []
-	investment_data = []
-	capex_data = []
-	income_data = []
-	overhead_data = []
-	advances_data = []
-	cc_list = []
-	pb_list = []
-
-	data_for_overhead = []
+	report_data, expense_data, investment_data = [], [], []
+	capex_data, income_data, overhead_data, advances_data = [], [], [], []
+	cc_list, pb_list, data_for_overhead = [], [], []
 	fy_wise_total_expenses_for_overhead = 0
 	projects_used_in_overhead = []
-
 	total_row = {"description":"<b>Total</b>"}
+
+	# 🟢 OPTIMIZED: PRE-FETCHING BLOCK
+	company_doc = frappe.get_cached_doc("Company", company)
+	company_default_expense_account = company_doc.custom_default_budget_expense_account
+	company_default_capex_account = company_doc.custom_default_budget_capex_account
+	company_default_income_account = company_doc.custom_default_budget_income_account
+	
+	advance_accounts = [acc for acc in [company_doc.custom_advance_to_employee, company_doc.custom_advance_to_vendor] if acc]
+	investment_group_ledger_accounts = [cstr(account.account) for account in company_doc.get("custom_default_budget_group_ledger_for_investment", [])]
+
+	ignored_jes = set(frappe.get_all("Journal Entry", filters={"custom_to_ignore_in_budget_vs_actual": 1, "docstatus": 1}, pluck="name"))
+	fixed_asset_accounts = set(frappe.get_all("Account", filters={"account_type": "Fixed Asset", "company": company}, pluck="name"))
+
+	op_alloc_map = {}
+	base_alloc_map = {}
+	cc_by_parent = {}
+
+	if project_budget and fiscal_year_list:
+		fy_names = tuple([fy.name for fy in fiscal_year_list])
+		pb_tuple = tuple(project_budget)
+
+		op_sql = """
+			SELECT
+				tpba.project_budget, tpba.name, tpba.company, tpba.fiscal_year,
+				tpba.total_expenses, tpba.expense_percentage, tpfe.description,
+				tpfe.amount, tpfe.percentage_allocation, tpfe.cost_center as cost_center_for_expense,
+				tfy.year_start_date, tfy.year_end_date, tpb.grant_ledger_account,
+				tpb.overhead_cost_center, tpb.project_start_date,
+				tpba.total_receipt AS receipt_from_project_budget 
+			FROM `tabFiscal Year Wise Project Budget Allocation` tpba
+			INNER JOIN `tabParticulars for Expenses` tpfe ON tpba.name = tpfe.parent
+			INNER JOIN `tabFiscal Year` tfy ON tfy.name = tpba.fiscal_year
+			INNER JOIN `tabProject Budget` tpb ON tpb.name = tpba.project_budget
+			WHERE tpba.project_budget IN %s AND tpba.fiscal_year IN %s
+		"""
+		for row in frappe.db.sql(op_sql, (pb_tuple, fy_names), as_dict=True):
+			op_alloc_map.setdefault((row.project_budget, row.fiscal_year), []).append(row)
+
+		base_sql = """
+			SELECT
+				tpba.project_budget, tpba.name, tpba.company, tpba.fiscal_year,
+				tpba.startup_investment, tpba.startup_investment_percentage,
+				tpba.capex, tpba.capex_percentage, tpba.overhead_percentage, tpba.overhead_amount,
+				tfy.year_start_date, tfy.year_end_date,
+				tpb.grant_ledger_account, tpb.overhead_cost_center, tpb.project_start_date,
+				tpba.total_receipt AS receipt_from_project_budget 
+			FROM `tabFiscal Year Wise Project Budget Allocation` tpba
+			INNER JOIN `tabFiscal Year` tfy ON tfy.name = tpba.fiscal_year
+			INNER JOIN `tabProject Budget` tpb ON tpb.name = tpba.project_budget
+			WHERE tpba.project_budget IN %s AND tpba.fiscal_year IN %s
+		"""
+		for row in frappe.db.sql(base_sql, (pb_tuple, fy_names), as_dict=True):
+			base_alloc_map.setdefault((row.project_budget, row.fiscal_year), []).append(row)
+
+		all_child_cc = frappe.get_all("Cost Center", filters={"parent_cost_center": ["in", project_budget], "company": company}, fields=["name", "parent_cost_center"])
+		for cc in all_child_cc:
+			cc_by_parent.setdefault(cc.parent_cost_center, []).append(cc.name)
 
 	# ==============================================================
 	# 1. OPERATIONAL EXPENSES
@@ -171,72 +209,32 @@ def get_data(filters):
 	
 	if len(project_budget)>0:
 		for project in project_budget:
+			
+			overhead_cost_center = None
+			for fy in fiscal_year_list:
+				if base_alloc_map.get((project, fy.name)):
+					overhead_cost_center = base_alloc_map.get((project, fy.name))[0].overhead_cost_center
+					break
+			
 			if len(fiscal_year_list)>0:
 				for fy in fiscal_year_list:
-					total_operational_expense_budget = 0
-					total_operational_expense_receipt = 0
-					total_operational_expense_actual = 0
-					total_carry_forward_budget = 0
-					total_carry_forward_receipt = 0
-					total_balance_budget = 0
-					total_available_fund = 0
+					total_operational_expense_budget = total_operational_expense_receipt = total_operational_expense_actual = 0
+					total_carry_forward_budget = total_carry_forward_receipt = total_balance_budget = total_available_fund = 0
 					current_fy = fy.name
 					fy_wise_total_expenses_for_overhead = 0
-					# NEW: Track cost centers already processed in this specific FY
 					processed_cc_in_current_fy = [] 
-
 					fy_field_name = (fy.name).replace("-","_")
-					project_budget_allocation_details = frappe.db.sql(f"""
-									SELECT
-										tpba.project_budget,
-										tpba.name,
-										tpba.company,
-										tpba.fiscal_year,
-										tpba.total_expenses,
-										tpba.expense_percentage,
-										tpfe.description,
-										tpfe.amount,
-										tpfe.percentage_allocation,
-										tpfe.cost_center as cost_center_for_expense,
-										tfy.year_start_date,
-										tfy.year_end_date,
-										tpb.grant_ledger_account,
-										tpb.overhead_cost_center,
-										tpb.project_start_date,
-										tpba.total_receipt AS receipt_from_project_budget 
-									FROM
-										`tabFiscal Year Wise Project Budget Allocation` tpba
-									INNER JOIN `tabParticulars for Expenses` tpfe ON
-										tpba.name = tpfe.parent
-									INNER JOIN `tabFiscal Year` tfy ON
-										tfy.name = tpba.fiscal_year
-									INNER JOIN `tabProject Budget` tpb ON
-										tpb.name = tpba.project_budget
-									WHERE tpba.project_budget = '{project}' and tpba.fiscal_year = '{fy.name}'
-								""",as_dict= True,debug=1)
-					
-					""" Note : fetching other child cost centers of project parent cost center which are not linked in Particulars for Expenses table because 
-					there can be expenses which are not allocated in Particulars for Expenses table but we need to consider those expenses in report 
-					if there are any expenses against those cost centers in general ledger. So fetching those cost centers and then calculating expenses for 
-					those cost centers and showing in report with project budget name but without amount in budget column because those expenses are not allocated in 
-					Particulars for Expenses table."""
-					overhead_cost_center = frappe.db.get_value("Project Budget",project,"overhead_cost_center")
+
+					project_budget_allocation_details = [frappe._dict(d) for d in op_alloc_map.get((project, fy.name), [])]
+
 					if len(project_budget_allocation_details)>0:
-						child_cost_centers = frappe.get_all("Cost Center",
-									filters={
-										"parent_cost_center": project,
-										"company": company,
-										"name": ["!=", overhead_cost_center]
-									},
-									pluck="name")
+						child_cost_centers = [cc for cc in cc_by_parent.get(project, []) if cc != overhead_cost_center]
+
 						if len(child_cost_centers)>0:
 							for cost_center in child_cost_centers:
 								if cost_center not in [d.cost_center_for_expense for d in project_budget_allocation_details]:
 									project_budget_allocation_details.append(frappe._dict({
-										"cost_center_for_expense": cost_center,
-										"description": "",
-										"amount": 0,
-										"percentage_allocation": 0,
+										"cost_center_for_expense": cost_center, "description": "", "amount": 0, "percentage_allocation": 0,
 										"name": project_budget_allocation_details[0].name,
 										"company": project_budget_allocation_details[0].company,
 										"project_start_date": project_budget_allocation_details[0].project_start_date,
@@ -251,27 +249,19 @@ def get_data(filters):
 									}))
 					
 						total_operational_expense_budget = total_operational_expense_budget + project_budget_allocation_details[0].total_expenses
-
 						group_by = "Group by Voucher (Consolidated)"
-						include_dimensions = 1
-						include_default_book_entries = 1
+						include_dimensions, include_default_book_entries = 1, 1
 
-						# select from date and to date to fetch data from General Ledger 
 						if getdate(project_budget_allocation_details[0].project_start_date) >= getdate(project_budget_allocation_details[0].year_start_date):
-							print("IN FROM IFF",project_budget_allocation_details[0].name)
 							report_from_date = getdate(project_budget_allocation_details[0].project_start_date)
 						else :
-							print("IN FROM ELSE")
 							report_from_date = getdate(project_budget_allocation_details[0].year_start_date)
 						
 						if getdate(filters.get("to_date")) >= getdate(project_budget_allocation_details[0].year_end_date):
-							print("IN TO IF")
 							report_to_date = getdate(project_budget_allocation_details[0].year_end_date)
 						else:
-							print("IN TO ELSE")
 							report_to_date = getdate(filters.get("to_date"))
 						
-						# Calculating receipt
 						if project_budget_allocation_details[0].receipt_from_project_budget > 0:
 							total_receipt = project_budget_allocation_details[0].receipt_from_project_budget
 						else:
@@ -280,7 +270,6 @@ def get_data(filters):
 						expense_receipt_amount = ( total_receipt * project_budget_allocation_details[0].expense_percentage) / 100
 						total_operational_expense_receipt = total_operational_expense_receipt + expense_receipt_amount
 						
-						# calculation for expenses based on cost centers
 						for row in project_budget_allocation_details:
 							cc = row.cost_center_for_expense
 							if cc not in cc_list:
@@ -297,75 +286,47 @@ def get_data(filters):
 									report_row["project_budget"] = row.project_budget
 									report_row["budget_{0}".format(fy_field_name)] = row.amount
 
-									# Calculating Total Receipt For Operational Expense Cost Center Wise
-
 									cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
 									report_row["total_receipt_{0}".format(fy_field_name)] = cost_center_wise_receipt
 
-									# Calculating Actual Expense For Operational Expense Cost Center Wise
-
-									company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
 									filters_of_expenses_for_general_ledger = frappe._dict({
-										"company": row.company,
-										"from_date": report_from_date,
-										"to_date": report_to_date,
-										"account":[company_default_expense_account],
-										"cost_center":[row.cost_center_for_expense],
-										"group_by": group_by,
-										"include_dimensions": include_dimensions,
-										"include_default_book_entries": include_default_book_entries
+										"company": row.company, "from_date": report_from_date, "to_date": report_to_date,
+										"account":[company_default_expense_account], "cost_center":[row.cost_center_for_expense],
+										"group_by": group_by, "include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries
 									})
 
-									##### Adding general ledger hyperlink
 									report_filters_for_hyperlink = frappe._dict({
-										"company": row.company,
-										"account":json.dumps([company_default_expense_account]),
-										"cost_center":json.dumps([row.cost_center_for_expense]),
-										"group_by": group_by,
-										"include_dimensions": include_dimensions,
-										"include_default_book_entries": include_default_book_entries,
-										"from_date": str(report_from_date),
-										"to_date": str(report_to_date)
+										"company": row.company, "account":json.dumps([company_default_expense_account]),
+										"cost_center":json.dumps([row.cost_center_for_expense]), "group_by": group_by,
+										"include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries,
+										"from_date": str(report_from_date), "to_date": str(report_to_date)
 									})
-									
 									query_string = urlencode(report_filters_for_hyperlink)
-
-									report_link = (
-											"/app/query-report/General%20Ledger"
-										) + "?" + query_string
-									
+									report_link = ("/app/query-report/General%20Ledger") + "?" + query_string
 									report_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
 
 									gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
 
 									if len(gl_report_data_for_expenses)>0:
-										total_debit = 0
-										total_credit = 0
+										total_debit, total_credit = 0, 0
 										for expense_row in gl_report_data_for_expenses[1]:
 											if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-												# if expense_row.get("account") == row.description:
-													if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
+												if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
 
-														### check entry is journal entry or not as check box is in Journal Entry only
-														if expense_row.get("voucher_type") == "Journal Entry":
-															ignore_in_budget_vs_actual = frappe.get_cached_value("Journal Entry",expense_row.get("voucher_no"),"custom_to_ignore_in_budget_vs_actual")
-														else :
-															### If it is not journal entry then always consider...
-															ignore_in_budget_vs_actual = 0
+													if expense_row.get("voucher_type") == "Journal Entry":
+														ignore_in_budget_vs_actual = 1 if expense_row.get("voucher_no") in ignored_jes else 0
+													else :
+														ignore_in_budget_vs_actual = 0
 
-														if ignore_in_budget_vs_actual == 0:
-															total_debit += expense_row.get("debit")
-															total_credit += expense_row.get("credit")
-
+													if ignore_in_budget_vs_actual == 0:
+														total_debit += expense_row.get("debit")
+														total_credit += expense_row.get("credit")
 										total_expense = total_debit - total_credit
-
 									else:
 										total_expense = 0
 
 									report_row["actual_expense_{0}".format(fy_field_name)] = total_expense
 									total_operational_expense_actual = total_operational_expense_actual + total_expense
-
-									# Calculating Variance and Percentages 
 
 									budget_variance = report_row["budget_{0}".format(fy_field_name)] - report_row["actual_expense_{0}".format(fy_field_name)]
 									receipt_variance = report_row["total_receipt_{0}".format(fy_field_name)] - report_row["actual_expense_{0}".format(fy_field_name)]
@@ -373,16 +334,14 @@ def get_data(filters):
 									report_row["receipt_variance_{0}".format(fy_field_name)] = receipt_variance
 
 									if report_row["budget_{0}".format(fy_field_name)] > 0:
-										spent_as_percent_against_budget = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["budget_{0}".format(fy_field_name)]
+										report_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["budget_{0}".format(fy_field_name)]
 									else:
-										spent_as_percent_against_budget = 0
-									report_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = spent_as_percent_against_budget
+										report_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = 0
 
 									if report_row["total_receipt_{0}".format(fy_field_name)] > 0:
-										spent_as_percent_against_receipt = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["total_receipt_{0}".format(fy_field_name)]
+										report_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = (report_row["actual_expense_{0}".format(fy_field_name)] * 100) / report_row["total_receipt_{0}".format(fy_field_name)]
 									else:
-										spent_as_percent_against_receipt = 0
-									report_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = spent_as_percent_against_receipt
+										report_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = 0
 
 									expense_data.append(report_row)
 									cc_list.append(row.get("cost_center_for_expense"))
@@ -390,32 +349,23 @@ def get_data(filters):
 									report_row["previous_year_receipt_variance"] = report_row.get("receipt_variance_{0}".format(fy_field_name))
 									total_balance_budget = total_balance_budget + report_row.get("budget_variance_{0}".format(fy_field_name))
 									total_available_fund = total_available_fund + report_row.get("receipt_variance_{0}".format(fy_field_name))
-
 									fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + total_expense
 
 							else :
 								for existing_expense_row in expense_data:
 									if cc == existing_expense_row.get("description"):			
 										if cc not in processed_cc_in_current_fy:
-											# -----------------------------------------------------------
-											# SCENARIO 2: Next FY, Existing Cost Center 
-											# -----------------------------------------------------------
 											processed_cc_in_current_fy.append(cc)
-											
-											# 1. Fetch the True Carry Forward from the PREVIOUS loop FIRST
 											cf_budget = existing_expense_row.get("previous_year_budget_variance") or 0
 											cf_receipt = existing_expense_row.get("previous_year_receipt_variance") or 0
 
 											if previous_fy and current_fy != previous_fy:
 												existing_expense_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = cf_budget
 												existing_expense_row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = cf_receipt
-												
-												# ADD to the grand total for this FY safely
 												total_carry_forward_budget += cf_budget
 												total_carry_forward_receipt += cf_receipt
 
-											if row.project_budget not in pb_list:
-												pb_list.append(row.project_budget)
+											if row.project_budget not in pb_list: pb_list.append(row.project_budget)
 
 											if existing_expense_row.get("budget_{0}".format(fy_field_name)) :
 												existing_expense_row["budget_{0}".format(fy_field_name)] = existing_expense_row.get("budget_{0}".format(fy_field_name)) + row.amount
@@ -423,19 +373,15 @@ def get_data(filters):
 											else:
 												existing_expense_row["budget_{0}".format(fy_field_name)] = row.amount
 
-											# Calculate Balances
 											existing_expense_row["balance_budget_{0}".format(fy_field_name)] = existing_expense_row.get("budget_{0}".format(fy_field_name)) + cf_budget
 											total_balance_budget += existing_expense_row["balance_budget_{0}".format(fy_field_name)]
 
-											# Calculating Total Receipt For Operational Expense Cost Center Wise
 											cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
 											existing_expense_row["total_receipt_{0}".format(fy_field_name)] = (existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + cost_center_wise_receipt
 											
 											existing_expense_row["balance_receipt_{0}".format(fy_field_name)] = existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) + cf_receipt
 											total_available_fund += existing_expense_row["balance_receipt_{0}".format(fy_field_name)]
 
-											# Calculating Actual Expense For Operational Expense Cost Center Wise
-											company_default_expense_account = frappe.db.get_value("Company", row.company, "custom_default_budget_expense_account")
 											filters_of_expenses_for_general_ledger = frappe._dict({
 												"company": row.company, "from_date": report_from_date, "to_date": report_to_date,
 												"account": [company_default_expense_account], "cost_center": [row.cost_center_for_expense],
@@ -443,38 +389,27 @@ def get_data(filters):
 											})
 
 											report_filters_for_hyperlink = frappe._dict({
-												"company": row.company,
-												"account":json.dumps([company_default_expense_account]),
-												"cost_center":json.dumps([row.cost_center_for_expense]),
-												"group_by": group_by,
-												"include_dimensions": include_dimensions,
-												"include_default_book_entries": include_default_book_entries,
-												"from_date": str(report_from_date),
-												"to_date": str(report_to_date)
+												"company": row.company, "account":json.dumps([company_default_expense_account]),
+												"cost_center":json.dumps([row.cost_center_for_expense]), "group_by": group_by,
+												"include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries,
+												"from_date": str(report_from_date), "to_date": str(report_to_date)
 											})
-											
 											query_string = urlencode(report_filters_for_hyperlink)
-
-											report_link = (
-													"/app/query-report/General%20Ledger"
-												) + "?" + query_string
-											
+											report_link = ("/app/query-report/General%20Ledger") + "?" + query_string
 											existing_expense_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
 
 											gl_report_data_for_expenses = gl_execute(filters_of_expenses_for_general_ledger)
 
 											total_expense = 0
 											if len(gl_report_data_for_expenses)>0:
-												total_debit = 0
-												total_credit = 0
+												total_debit, total_credit = 0, 0
 												for expense_row in gl_report_data_for_expenses[1]:
 													if expense_row.get("account") and expense_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
 														if expense_row.get("voucher_type") and expense_row.get("voucher_type") != "Period Closing Voucher":
-															### check entry is journal entry or not as check box is in Journal Entry only
+															
 															if expense_row.get("voucher_type") == "Journal Entry":
-																ignore_in_budget_vs_actual = frappe.get_cached_value("Journal Entry",expense_row.get("voucher_no"),"custom_to_ignore_in_budget_vs_actual")
+																ignore_in_budget_vs_actual = 1 if expense_row.get("voucher_no") in ignored_jes else 0
 															else :
-																### If it is not journal entry then always consider...
 																ignore_in_budget_vs_actual = 0
 
 															if ignore_in_budget_vs_actual == 0:
@@ -486,7 +421,6 @@ def get_data(filters):
 											total_operational_expense_actual += total_expense
 											fy_wise_total_expenses_for_overhead += total_expense
 
-											# Calculating Variance and Percentages 
 											budget_variance = existing_expense_row["balance_budget_{0}".format(fy_field_name)] - existing_expense_row["actual_expense_{0}".format(fy_field_name)]
 											receipt_variance = existing_expense_row["balance_receipt_{0}".format(fy_field_name)] - existing_expense_row["actual_expense_{0}".format(fy_field_name)]
 											
@@ -503,60 +437,42 @@ def get_data(filters):
 											else:
 												existing_expense_row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = 0
 
-											# 2. Store this NEW variance safely for the NEXT Fiscal Year
 											existing_expense_row["previous_year_budget_variance"] = budget_variance
 											existing_expense_row["previous_year_receipt_variance"] = receipt_variance
 
 										else:
-											# -----------------------------------------------------------
-											# SCENARIO 3: Same FY, Repeated Cost Center 
-											# No GL calls, No carry forward calculations. Just addition.
-											# -----------------------------------------------------------
 											existing_expense_row["budget_{0}".format(fy_field_name)] = (existing_expense_row.get("budget_{0}".format(fy_field_name)) or 0) + row.amount
 											total_balance_budget += row.amount
-
 											cost_center_wise_receipt = expense_receipt_amount * (row.percentage_allocation / 100)
 											existing_expense_row["total_receipt_{0}".format(fy_field_name)] = (existing_expense_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + cost_center_wise_receipt
 											total_available_fund += cost_center_wise_receipt
 											
-											# Update Balances
 											existing_expense_row["balance_budget_{0}".format(fy_field_name)] = (existing_expense_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + existing_expense_row["budget_{0}".format(fy_field_name)]
 											existing_expense_row["balance_receipt_{0}".format(fy_field_name)] = (existing_expense_row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) or 0) + existing_expense_row["total_receipt_{0}".format(fy_field_name)]
 
-											# Recalculate Variances
 											actual_exp = existing_expense_row.get("actual_expense_{0}".format(fy_field_name)) or 0
 											budget_variance = existing_expense_row["balance_budget_{0}".format(fy_field_name)] - actual_exp
 											receipt_variance = existing_expense_row["balance_receipt_{0}".format(fy_field_name)] - actual_exp
 											
 											existing_expense_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
 											existing_expense_row["receipt_variance_{0}".format(fy_field_name)] = receipt_variance
-
-											# Overwrite the stored previous year variance with this newly expanded variance
 											existing_expense_row["previous_year_budget_variance"] = budget_variance
 											existing_expense_row["previous_year_receipt_variance"] = receipt_variance									
-
 										fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + total_expense
-
 
 					for row in expense_data:
 						if row.get("description") == "<b>Operational Expenses</b>":
 							row["budget_{0}".format(fy_field_name)] = (row.get("budget_{0}".format(fy_field_name)) or 0) + total_operational_expense_budget
 							row["total_receipt_{0}".format(fy_field_name)] = (row.get("total_receipt_{0}".format(fy_field_name)) or 0) + total_operational_expense_receipt
 							row["actual_expense_{0}".format(fy_field_name)] = (row.get("actual_expense_{0}".format(fy_field_name)) or 0) + total_operational_expense_actual
-
 							row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = (row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + total_carry_forward_budget
 							row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = (row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) or 0) + total_carry_forward_receipt
-
 							row["balance_budget_{0}".format(fy_field_name)] = (row.get("balance_budget_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) + total_operational_expense_budget
 							row["balance_receipt_{0}".format(fy_field_name)] = (row.get("balance_receipt_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) + total_operational_expense_receipt
-
 							row["budget_variance_{0}".format(fy_field_name)] = (row.get("budget_variance_{0}".format(fy_field_name)) or 0) + (row.get("balance_budget_{0}".format(fy_field_name)) - total_operational_expense_actual)
 							row["receipt_variance_{0}".format(fy_field_name)] = (row.get("receipt_variance_{0}".format(fy_field_name)) or 0) + (row.get("balance_receipt_{0}".format(fy_field_name)) - total_operational_expense_actual)
 
 							total_consumption = total_consumption + total_operational_expense_actual
-							
-							# total_carry_forward_budget = row.get("budget_variance_{0}".format(fy_field_name))
-							# total_carry_forward_receipt = row.get("receipt_variance_{0}".format(fy_field_name))
 
 							if total_operational_expense_budget > 0:
 								row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = (total_operational_expense_actual * 100) / total_operational_expense_budget
@@ -567,7 +483,6 @@ def get_data(filters):
 							else:
 								row["spent_as_percent_against_receipt_{0}".format(fy_field_name)] = 0
 
-
 							total_row["budget_{0}".format(fy_field_name)] = (total_row.get("budget_{0}".format(fy_field_name)) or 0) + total_operational_expense_budget
 							total_row["total_receipt_{0}".format(fy_field_name)] = (total_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + total_operational_expense_receipt
 							total_row["actual_expense_{0}".format(fy_field_name)] = (total_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + total_operational_expense_actual
@@ -577,9 +492,6 @@ def get_data(filters):
 							total_row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = (total_row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) or 0) + total_carry_forward_receipt
 							total_row["balance_budget_{0}".format(fy_field_name)] = (total_row.get("balance_budget_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) + total_operational_expense_budget
 							total_row["balance_receipt_{0}".format(fy_field_name)] = (total_row.get("balance_receipt_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) + total_operational_expense_receipt
-
-					
-							# Adding Data for Overhead Calculation
 
 							if len(data_for_overhead)>0:
 								for d in data_for_overhead:
@@ -603,82 +515,41 @@ def get_data(filters):
 								})
 								projects_used_in_overhead.append(project)
 					previous_fy = current_fy
-	print(total_row,"<------total_row after expense")
-	print(data_for_overhead,"<--------data_for_overhead after Expense")
+
 	# ==============================================================
 	# 2. INVESTMENTS
 	# ==============================================================
-
 	investment_data.append({"description":"<b>Investments</b>"})
 	previous_year_budget_variance = 0
 	previous_year_receipt_variance = 0
 	project_wise_carry_forward_budget_variance = 0
-	investment_group_ledger_accounts = []
 	pb_list = []
-	# total_investment_budget = 0
-	# total_investment_receipt = 0
-	# total_investment_actual = 0
-	company = frappe.get_doc("Company", filters.get("company"))
-	if len(company.custom_default_budget_group_ledger_for_investment)>0:
-		for account in company.custom_default_budget_group_ledger_for_investment:
-			investment_group_ledger_accounts.append(cstr(account.account))
 
 	if len(project_budget)>0:
 		for project in project_budget:
 			project_wise_carry_forward_budget_variance = 0
 			if len(fiscal_year_list)>0:
 				for fy in fiscal_year_list:
-					total_investment_budget = 0
-					total_investment_receipt = 0
-					total_investment_actual = 0
-					total_carry_forward_budget = 0
-					total_carry_forward_receipt = 0
-					total_balance_budget = 0
-					total_available_fund = 0
-
+					total_investment_budget = total_investment_receipt = total_investment_actual = 0
+					total_carry_forward_budget = total_carry_forward_receipt = total_balance_budget = total_available_fund = 0
 					fy_wise_total_expenses_for_overhead = 0
 					fy_field_name = (fy.name).replace("-","_")
-					project_budget_allocation_details = frappe.db.sql(f"""
-									SELECT
-										tpba.project_budget,
-										tpba.company,
-										tpba.fiscal_year,
-										tpba.startup_investment,
-										tpba.startup_investment_percentage,
-										tfy.year_start_date,
-										tfy.year_end_date,
-										tpb.grant_ledger_account,
-										tpb.overhead_cost_center,
-										tpb.project_start_date,
-										tpba.total_receipt AS receipt_from_project_budget 
-									FROM
-										`tabFiscal Year Wise Project Budget Allocation` tpba
-									INNER JOIN `tabFiscal Year` tfy ON
-										tfy.name = tpba.fiscal_year
-									INNER JOIN `tabProject Budget` tpb ON
-										tpb.name = tpba.project_budget
-									WHERE tpba.project_budget = '{project}' and tpba.fiscal_year = '{fy.name}'
-								""",as_dict= True,debug=1)
-					if len(project_budget_allocation_details)>0:
-			
-						total_investment_budget = total_investment_budget + project_budget_allocation_details[0].startup_investment
 
+					project_budget_allocation_details = base_alloc_map.get((project, fy.name), [])
+					
+					if len(project_budget_allocation_details)>0:
+						total_investment_budget = total_investment_budget + project_budget_allocation_details[0].startup_investment
 						group_by = "Group by Account"
-						include_dimensions = 1
-						include_default_book_entries = 1
+						include_dimensions, include_default_book_entries = 1, 1
 
 						if getdate(project_budget_allocation_details[0].project_start_date) >= getdate(project_budget_allocation_details[0].year_start_date):
-							print("IN FROM IFF",project_budget_allocation_details[0].name)
 							report_from_date = getdate(project_budget_allocation_details[0].project_start_date)
 						else :
-							print("IN FROM ELSE")
 							report_from_date = getdate(project_budget_allocation_details[0].year_start_date)
 						
 						if getdate(filters.get("to_date")) >= getdate(project_budget_allocation_details[0].year_end_date):
-							print("IN TO IF")
 							report_to_date = getdate(project_budget_allocation_details[0].year_end_date)
 						else:
-							print("IN TO ELSE")
 							report_to_date = getdate(filters.get("to_date"))
 						
 						if project_budget_allocation_details[0].receipt_from_project_budget > 0:
@@ -690,39 +561,25 @@ def get_data(filters):
 						total_investment_receipt = total_investment_receipt + receipt_amount_for_investment
 
 						filters_of_investment_expense_for_general_ledger = frappe._dict({
-							"company": project_budget_allocation_details[0].company,
-							"from_date": report_from_date,
-							"to_date": report_to_date,
-							"account":investment_group_ledger_accounts,
-							"cost_center":[project_budget_allocation_details[0].project_budget],
-							"group_by": group_by,
-							"include_dimensions": include_dimensions,
-							"include_default_book_entries": include_default_book_entries
+							"company": project_budget_allocation_details[0].company, "from_date": report_from_date, "to_date": report_to_date,
+							"account":investment_group_ledger_accounts, "cost_center":[project_budget_allocation_details[0].project_budget],
+							"group_by": group_by, "include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries
 						})
 
 						report_filters_for_hyperlink = frappe._dict({
-							"company": project_budget_allocation_details[0].company,
-							"account":json.dumps(investment_group_ledger_accounts),
-							"cost_center":json.dumps([project_budget_allocation_details[0].project_budget]),
-							"group_by": group_by,
-							"include_dimensions": include_dimensions,
-							"include_default_book_entries": include_default_book_entries,
-							"from_date": str(report_from_date),
-							"to_date": str(report_to_date)
+							"company": project_budget_allocation_details[0].company, "account":json.dumps(investment_group_ledger_accounts),
+							"cost_center":json.dumps([project_budget_allocation_details[0].project_budget]), "group_by": group_by,
+							"include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries,
+							"from_date": str(report_from_date), "to_date": str(report_to_date)
 						})
-						
 						query_string = urlencode(report_filters_for_hyperlink)
-
-						report_link = (
-								"/app/query-report/General%20Ledger"
-							) + "?" + query_string
+						report_link = ("/app/query-report/General%20Ledger") + "?" + query_string
 
 						gl_report_data_for_investments = gl_execute(filters_of_investment_expense_for_general_ledger)
 						if len(gl_report_data_for_investments[1]) >0:
 							account_list = []
 							for investment_row in gl_report_data_for_investments[1]:
 								if investment_row.get("account") and investment_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-									# check length of description
 									description_for_report = investment_row.get("cost_center") + " _ " + investment_row.get("account")
 									description_length = len(description_for_report)
 									if description_length>max_description_length:
@@ -738,8 +595,7 @@ def get_data(filters):
 										report_row["total_receipt_{0}".format(fy_field_name)] = 0
 										total_investment_actual = total_investment_actual + expense
 										report_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
-										# Calculating Variance and Percentages 
-
+										
 										budget_variance = report_row["budget_{0}".format(fy_field_name)] - report_row["actual_expense_{0}".format(fy_field_name)]
 										report_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
 
@@ -756,7 +612,6 @@ def get_data(filters):
 
 										fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + expense
 									else :
-										# if fiscal_year_changed == False:
 										for existing_investment_row in investment_data:
 											if existing_investment_row.get("description") == description_for_report:
 												existing_investment_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = existing_investment_row.get("previous_year_budget_variance")
@@ -774,24 +629,15 @@ def get_data(filters):
 												fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + (investment_row.get("debit") - investment_row.get("credit"))
 
 												existing_investment_row["previous_year_budget_variance"] = existing_investment_row.get("budget_variance_{0}".format(fy_field_name))
-										# elif fiscal_year_changed == True:
-
-					# else:
-					# 	data_for_overhead.append({
-					# 		"project_budget": project,
-					# 		"total_expense_{0}".format(fy_field_name): fy_wise_total_expenses_for_overhead
-					# 	})
 
 					for row in investment_data:
 						if row.get("description") == "<b>Investments</b>":
 							row["budget_{0}".format(fy_field_name)] = (row.get("budget_{0}".format(fy_field_name)) or 0) + total_investment_budget
 							row["actual_expense_{0}".format(fy_field_name)] = (row.get("actual_expense_{0}".format(fy_field_name)) or 0) + total_investment_actual
 							row["total_receipt_{0}".format(fy_field_name)] = (row.get("total_receipt_{0}".format(fy_field_name)) or 0) + total_investment_receipt
-
 							row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = previous_year_budget_variance
 							row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = previous_year_receipt_variance
 
-							# below 2 variables are for overhead calculations only
 							project_wise_balance_budget = project_wise_carry_forward_budget_variance + total_investment_budget
 							project_wise_budget_variance = project_wise_balance_budget - total_investment_actual
 
@@ -828,69 +674,39 @@ def get_data(filters):
 									if d.get("project_budget") == project:
 										d["total_expense_{0}".format(fy_field_name)] = (d.get("total_expense_{0}".format(fy_field_name)) or 0) + fy_wise_total_expenses_for_overhead
 										d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + project_wise_carry_forward_budget_variance + total_investment_budget
-							# for overhead calculations only
+							
 							project_wise_carry_forward_budget_variance = project_wise_budget_variance
-
-	print(total_row,"total after investment+++++++++++++++++++++++++++++++++++++++")
-	print(data_for_overhead,"---------------overhead after investmenttttttttt")
 
 	# ==============================================================
 	# 3. CAPEX
 	# ==============================================================
-
 	capex_data.append({"description":"<b>Capex</b>"})
 	project_budget_list = []
 	account_list = []
 	previous_year_budget_variance = 0
 	previous_year_receipt_variance = 0
 	project_wise_carry_forward_budget_variance = 0
-	company_default_capex_account = company.custom_default_budget_capex_account
 
 	if len(project_budget)>0:
 		for project in project_budget:
 			project_wise_carry_forward_budget_variance = 0
 			if len(fiscal_year_list)>0:
 				for fy in fiscal_year_list:
-					total_capex_budget = 0
-					total_capex_receipt = 0
-					total_capex_actual = 0
-					capex_expense = 0
-					fy_wise_total_expenses_for_overhead = 0
+					total_capex_budget = total_capex_receipt = total_capex_actual = capex_expense = fy_wise_total_expenses_for_overhead = 0
 					fy_field_name = (fy.name).replace("-","_")
-					project_budget_allocation_details = frappe.db.sql(f"""
-									SELECT
-										tpb.name,
-										tpba.company,
-										tpba.fiscal_year,
-										tpb.project_start_date,
-										tpb.grant_ledger_account,
-										tfy.year_start_date,
-										tfy.year_end_date,
-										tpba.capex,
-										tpba.capex_percentage,
-										tpba.total_receipt AS receipt_from_project_budget
-									FROM
-										`tabFiscal Year Wise Project Budget Allocation` tpba
-									INNER JOIN `tabFiscal Year` tfy ON
-										tfy.name = tpba.fiscal_year
-									INNER JOIN `tabProject Budget` tpb ON
-										tpb.name = tpba.project_budget
-									WHERE tpba.project_budget = '{project}' and tpba.fiscal_year = '{fy.name}'
-								""",as_dict= True,debug=1)
+					
+					project_budget_allocation_details = base_alloc_map.get((project, fy.name), [])
+					
 					if len(project_budget_allocation_details)>0:
 						total_capex_budget = total_capex_budget + project_budget_allocation_details[0].capex
 						if getdate(project_budget_allocation_details[0].project_start_date) >= getdate(project_budget_allocation_details[0].year_start_date):
-							print("IN FROM IFF",project_budget_allocation_details[0].name)
 							report_from_date = getdate(project_budget_allocation_details[0].project_start_date)
 						else :
-							print("IN FROM ELSE",getdate(project_budget_allocation_details[0].year_start_date))
 							report_from_date = getdate(project_budget_allocation_details[0].year_start_date)
 						
 						if getdate(filters.get("to_date")) >= getdate(project_budget_allocation_details[0].year_end_date):
-							print("IN TO IF")
 							report_to_date = getdate(project_budget_allocation_details[0].year_end_date)
 						else:
-							print("IN TO ELSE")
 							report_to_date = getdate(filters.get("to_date"))
 
 						if project_budget_allocation_details[0].receipt_from_project_budget > 0:
@@ -904,39 +720,25 @@ def get_data(filters):
 						capex_report_row = {}
 						capex_expense = 0
 
+						# 🟢 FIXED: Changed .name to .project_budget to prevent Fiscal Year appending in cost_center filter
 						gl_list = frappe.db.get_all("GL Entry",
-									filters={"posting_date":["between",[report_from_date,report_to_date]],"account":["descendants of (inclusive)",company_default_capex_account],"cost_center":["descendants of (inclusive)",project_budget_allocation_details[0].name]},
+									filters={"posting_date":["between",[report_from_date,report_to_date]],"account":["descendants of (inclusive)",company_default_capex_account],"cost_center":["descendants of (inclusive)",project_budget_allocation_details[0].project_budget]},
 									fields=["sum(debit) as total_debit", "sum(credit) as total_credit", "account", "cost_center"],group_by="account")
 						
 						filters_for_list_view = frappe._dict({
-							"posting_date": json.dumps([
-								"between",
-								[
-									str(report_from_date),
-									str(report_to_date)
-								]
-							]),
-							"account": json.dumps([
-								"descendants of (inclusive)",
-								company_default_capex_account
-							]),
-							"cost_center": json.dumps([
-								"descendants of (inclusive)",
-								project_budget_allocation_details[0].name
-							])
+							"posting_date": json.dumps(["between", [str(report_from_date), str(report_to_date)]]),
+							"account": json.dumps(["descendants of (inclusive)", company_default_capex_account]),
+							"cost_center": json.dumps(["descendants of (inclusive)", project_budget_allocation_details[0].project_budget]) # 🟢 FIXED
 						})
 
-						gl_entry_link = (
-							"/app/gl-entry/view/list?"
-							+ urlencode(filters_for_list_view)
-						)
+						gl_entry_link = ("/app/gl-entry/view/list?") + urlencode(filters_for_list_view)
 
 						if len(gl_list)>0:
-							# account_list = []
 							for capex_row in gl_list:
-								account_type = frappe.db.get_value("Account",capex_row.get("account"),"account_type")
+								
+								account_type = "Fixed Asset" if capex_row.get("account") in fixed_asset_accounts else None
+
 								if account_type and account_type == "Fixed Asset":
-									# check length of description
 									description_for_report = capex_row.get("cost_center") + " _ " + capex_row.get("account")
 									description_length = len(description_for_report)
 									if description_length>max_description_length:
@@ -944,18 +746,15 @@ def get_data(filters):
 
 									if capex_row.get("account") and description_for_report not in account_list:
 										capex_report_row = {}	
-										capex_expense = 0
 										capex_expense = capex_row.total_debit - capex_row.total_credit
 										if capex_expense > 0 and project not in project_budget_list:
 											project_budget_list.append(project)
 										capex_report_row["description"] = description_for_report
 										capex_report_row["indent"] = 1
-										capex_report_row["project_budget"] = project_budget_allocation_details[0].name
+										capex_report_row["project_budget"] = project_budget_allocation_details[0].project_budget # 🟢 FIXED
 										capex_report_row["budget_{0}".format(fy_field_name)] = 0
 										capex_report_row["actual_expense_{0}".format(fy_field_name)] = capex_expense
 										capex_report_row["general_ledger_report_link_{0}".format(fy_field_name)] = gl_entry_link
-
-										# Calculating Variance and Percentages 
 
 										budget_variance = capex_report_row["budget_{0}".format(fy_field_name)] - capex_report_row["actual_expense_{0}".format(fy_field_name)]
 										capex_report_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
@@ -997,12 +796,9 @@ def get_data(filters):
 							row["budget_{0}".format(fy_field_name)] = (row.get("budget_{0}".format(fy_field_name)) or 0) + total_capex_budget
 							row["actual_expense_{0}".format(fy_field_name)] = (row.get("actual_expense_{0}".format(fy_field_name)) or 0) + total_capex_actual
 							row["total_receipt_{0}".format(fy_field_name)] = (row.get("total_receipt_{0}".format(fy_field_name)) or 0) + total_capex_receipt
-							# row["budget_variance_{0}".format(fy_field_name)] = (row.get("budget_variance_{0}".format(fy_field_name)) or 0) + total_capex_budget - total_capex_actual
-							# row["receipt_variance_{0}".format(fy_field_name)] = (row.get("receipt_variance_{0}".format(fy_field_name)) or 0) + total_capex_receipt - total_capex_actual
-
 							row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = previous_year_budget_variance
 							row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = previous_year_receipt_variance
-							# for overhead calculations only
+							
 							project_wise_balance_budget = project_wise_carry_forward_budget_variance + total_capex_budget
 							project_wise_budget_variance = project_wise_balance_budget - total_capex_actual
 
@@ -1034,282 +830,189 @@ def get_data(filters):
 							total_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = (total_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name))
 							total_row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = (total_row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name))
 
-							# Adding data for overhead calculation
 							if len(data_for_overhead)>0:
 								for d in data_for_overhead:
 									if d.get("project_budget") == project:
 										d["total_expense_{0}".format(fy_field_name)] = d.get("total_expense_{0}".format(fy_field_name)) + fy_wise_total_expenses_for_overhead
 										d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + project_wise_carry_forward_budget_variance + total_capex_budget
-							# for overhead calculations only
+							
 							project_wise_carry_forward_budget_variance = project_wise_budget_variance
 
-	print(total_row,"Total after capex+++++++++++++++++++++++++++++++++++++++")
-	print(data_for_overhead,"++++++++++++ overhead after capexxxxxxxxxxxx")
 	# ==============================================================
 	# 4. ADVANCES
 	# ==============================================================
-
-	advance_accounts = [company.custom_advance_to_employee, company.custom_advance_to_vendor]
 	project_budget_list = []
 	project_wise_carry_forward_budget_variance = 0
 	account_list = []
 
 	advances_data.append({"description":"<b>Advances</b>"})
 
-	if len(project_budget)>0:
-		if len(advance_accounts)>0:
-			# for account in advance_accounts:
-			for account in advance_accounts:
-				for project in project_budget:
-					project_wise_carry_forward_budget_variance = 0
-					if len(fiscal_year_list)>0:
-						for fy in fiscal_year_list:
-							total_debit = 0
-							total_credit = 0
-							advance_expense = 0
-							fy_wise_total_expenses_for_overhead = 0
-							fy_field_name = (fy.name).replace("-","_")
-							project_budget_allocation_details = frappe.db.sql(f"""
-											SELECT
-												tpb.name,
-												tpb.company,
-											  	tfy.year_start_date,
-												tfy.year_end_date,
-												tpb.project_start_date,
-											  	tpba.fiscal_year
-											FROM
-												`tabFiscal Year Wise Project Budget Allocation` tpba
-											INNER JOIN `tabFiscal Year` tfy ON
-												tfy.name = tpba.fiscal_year
-											INNER JOIN `tabProject Budget` tpb ON
-												tpb.name = tpba.project_budget
-											WHERE tpba.project_budget = '{project}' and tpba.fiscal_year = '{fy.name}'
-								""",as_dict= True)
-							if len(project_budget_allocation_details)>0:
-								group_by = "Group by Voucher (Consolidated)"
-								include_dimensions = 1
-								include_default_book_entries = 1
+	if len(project_budget)>0 and len(advance_accounts)>0:
+		for account in advance_accounts:
+			for project in project_budget:
+				project_wise_carry_forward_budget_variance = 0
+				if len(fiscal_year_list)>0:
+					for fy in fiscal_year_list:
+						total_debit, total_credit, advance_expense, fy_wise_total_expenses_for_overhead = 0, 0, 0, 0
+						fy_field_name = (fy.name).replace("-","_")
+						
+						project_budget_allocation_details = base_alloc_map.get((project, fy.name), [])
+						
+						if len(project_budget_allocation_details)>0:
+							group_by = "Group by Voucher (Consolidated)"
+							include_dimensions, include_default_book_entries = 1, 1
 
-								if getdate(project_budget_allocation_details[0].project_start_date) >= getdate(project_budget_allocation_details[0].year_start_date):
-									print("IN FROM IFF",project_budget_allocation_details[0].name)
-									report_from_date = getdate(project_budget_allocation_details[0].project_start_date)
-								else :
-									print("IN FROM ELSE",getdate(project_budget_allocation_details[0].year_start_date))
-									report_from_date = getdate(project_budget_allocation_details[0].year_start_date)
+							if getdate(project_budget_allocation_details[0].project_start_date) >= getdate(project_budget_allocation_details[0].year_start_date):
+								report_from_date = getdate(project_budget_allocation_details[0].project_start_date)
+							else :
+								report_from_date = getdate(project_budget_allocation_details[0].year_start_date)
+							
+							if getdate(filters.get("to_date")) >= getdate(project_budget_allocation_details[0].year_end_date):
+								report_to_date = getdate(project_budget_allocation_details[0].year_end_date)
+							else:
+								report_to_date = getdate(filters.get("to_date"))
+
+							# 🟢 FIXED: Changed .name to .project_budget
+							filters_of_advances_for_general_ledger = frappe._dict({
+								"company": project_budget_allocation_details[0].company, "from_date": report_from_date, "to_date": report_to_date,
+								"account":[account], "cost_center":[project_budget_allocation_details[0].project_budget], # 🟢 FIXED
+								"group_by": group_by, "include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries
+							})
+
+							report_filters_for_hyperlink = frappe._dict({
+								"company": project_budget_allocation_details[0].company, "account":json.dumps([account]),
+								"cost_center":json.dumps([project_budget_allocation_details[0].project_budget]), "group_by": group_by, # 🟢 FIXED
+								"include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries,
+								"from_date": str(report_from_date), "to_date": str(report_to_date)
+							})
+							query_string = urlencode(report_filters_for_hyperlink)
+							report_link = ("/app/query-report/General%20Ledger") + "?" + query_string
+
+							gl_report_data_for_advances = gl_execute(filters_of_advances_for_general_ledger)
+							if len(gl_report_data_for_advances)>0:
+								for d in gl_report_data_for_advances[1]:
+									if d.get("account") and d.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
+										total_debit += d.get("debit")
+										total_credit += d.get("credit")
+
+								advance_expense = advance_expense + (total_debit - total_credit)
+								if advance_expense > 0 and project not in project_budget_list:
+									project_budget_list.append(project)
+							else:
+								advance_expense = 0
 								
-								if getdate(filters.get("to_date")) >= getdate(project_budget_allocation_details[0].year_end_date):
-									print("IN TO IF")
-									report_to_date = getdate(project_budget_allocation_details[0].year_end_date)
+							if account not in account_list:
+								advance_report_row = {}
+								advance_report_row["description"] = account
+								advance_report_row["indent"] = 1
+								advance_report_row["project_budget"] = ", ".join(project_budget_list)
+								advance_report_row["budget_{0}".format(fy_field_name)] = 0
+								advance_report_row["actual_expense_{0}".format(fy_field_name)] = advance_expense
+								advance_report_row["total_receipt_{0}".format(fy_field_name)] = 0
+								advance_report_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
+
+								budget_variance = advance_report_row["budget_{0}".format(fy_field_name)] - advance_report_row["actual_expense_{0}".format(fy_field_name)]
+								advance_report_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
+
+								if advance_report_row["budget_{0}".format(fy_field_name)] > 0:
+									spent_as_percent_against_budget = (advance_report_row["actual_expense_{0}".format(fy_field_name)] * 100) / advance_report_row["budget_{0}".format(fy_field_name)]
 								else:
-									print("IN TO ELSE")
-									report_to_date = getdate(filters.get("to_date"))
+									spent_as_percent_against_budget = 0
+								advance_report_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = spent_as_percent_against_budget
 
-								filters_of_advances_for_general_ledger = frappe._dict({
-									"company": project_budget_allocation_details[0].company,
-									"from_date": report_from_date,
-									"to_date": report_to_date,
-									"account":[account],
-									"cost_center":[project_budget_allocation_details[0].name],
-									"group_by": group_by,
-									"include_dimensions": include_dimensions,
-									"include_default_book_entries": include_default_book_entries
-								})
-
-								report_filters_for_hyperlink = frappe._dict({
-									"company": project_budget_allocation_details[0].company,
-									"account":json.dumps([account]),
-									"cost_center":json.dumps([project_budget_allocation_details[0].name]),
-									"group_by": group_by,
-									"include_dimensions": include_dimensions,
-									"include_default_book_entries": include_default_book_entries,
-									"from_date": str(report_from_date),
-									"to_date": str(report_to_date)
-								})
+								advances_data.append(advance_report_row)
+								account_list.append(account)
+								advance_report_row["previous_year_budget_variance"] = advance_report_row.get("budget_variance_{0}".format(fy_field_name))
+								fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + advance_expense
 								
-								query_string = urlencode(report_filters_for_hyperlink)
+								project_wise_balance_budget = project_wise_carry_forward_budget_variance + advance_report_row.get("budget_{0}".format(fy_field_name))
+								project_wise_budget_variance = project_wise_balance_budget - advance_expense
 
-								report_link = (
-										"/app/query-report/General%20Ledger"
-									) + "?" + query_string
+								total_row["actual_expense_{0}".format(fy_field_name)] = (total_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + advance_report_row.get("actual_expense_{0}".format(fy_field_name))
+								total_row["budget_variance_{0}".format(fy_field_name)] = (total_row.get("budget_variance_{0}".format(fy_field_name)) or 0) + advance_report_row.get("budget_variance_{0}".format(fy_field_name))
 
-								gl_report_data_for_advances = gl_execute(filters_of_advances_for_general_ledger)
-								if len(gl_report_data_for_advances)>0:
-									for d in gl_report_data_for_advances[1]:
-										if d.get("account") and d.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
-											total_debit += d.get("debit")
-											total_credit += d.get("credit")
-
-									advance_expense = advance_expense + (total_debit - total_credit)
-									if advance_expense > 0 and project not in project_budget_list:
-										project_budget_list.append(project)
-
-								else:
-									advance_expense = 0
+								if len(data_for_overhead)>0:
+									for d in data_for_overhead:
+										if d.get("project_budget") == project:
+											d["total_expense_{0}".format(fy_field_name)] = d.get("total_expense_{0}".format(fy_field_name)) + (total_debit - total_credit)
+											d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + project_wise_carry_forward_budget_variance
 								
-								# if len(data_for_overhead)>0:
-								# 	for d in data_for_overhead:
-								# 		if d.get("project_budget") == project:
-								# 			d["total_expense_{0}".format(fy_field_name)] = d.get("total_expense_{0}".format(fy_field_name)) + (total_debit - total_credit)
-								# 			d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name))
-									
-								if account not in account_list:
-									advance_report_row = {}
-									advance_report_row["description"] = account
-									advance_report_row["indent"] = 1
-									advance_report_row["project_budget"] = ", ".join(project_budget_list)
-									advance_report_row["budget_{0}".format(fy_field_name)] = 0
-									advance_report_row["actual_expense_{0}".format(fy_field_name)] = advance_expense
-									advance_report_row["total_receipt_{0}".format(fy_field_name)] = 0
-									advance_report_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
+								project_wise_carry_forward_budget_variance = project_wise_budget_variance
+							else :
+								for existing_advance_row in advances_data:
+									if account == existing_advance_row.get("description"):
+										project_wise_balance_budget = project_wise_carry_forward_budget_variance
+										project_wise_budget_variance = project_wise_balance_budget - advance_expense
+										existing_advance_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = (existing_advance_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("previous_year_budget_variance")
+										existing_advance_row["balance_budget_{0}".format(fy_field_name)] = (existing_advance_row.get("balance_budget_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name))
 
-									# Calculating Variance and Percentages 
+										if advance_expense > 0 and project not in project_budget_list:
+											project_budget_list.append(project)
+										existing_advance_row["actual_expense_{0}".format(fy_field_name)] = (existing_advance_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + advance_expense
+										existing_advance_row["project_budget"] = ", ".join(project_budget_list)
+										report_filters_for_hyperlink = frappe._dict({
+											"company": project_budget_allocation_details[0].company,
+											"account":json.dumps([account]),
+											"cost_center":json.dumps(project_budget_list),
+											"group_by": group_by,
+											"include_dimensions": include_dimensions,
+											"include_default_book_entries": include_default_book_entries,
+											"from_date": str(report_from_date),
+											"to_date": str(report_to_date)
+										})
+										query_string = urlencode(report_filters_for_hyperlink)
+										report_link = ("/app/query-report/General%20Ledger") + "?" + query_string
 
-									budget_variance = advance_report_row["budget_{0}".format(fy_field_name)] - advance_report_row["actual_expense_{0}".format(fy_field_name)]
-									advance_report_row["budget_variance_{0}".format(fy_field_name)] = budget_variance
+										existing_advance_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
+										existing_advance_row["budget_variance_{0}".format(fy_field_name)] = (existing_advance_row.get("budget_variance_{0}".format(fy_field_name)) or 0) + existing_advance_row["balance_budget_{0}".format(fy_field_name)] - existing_advance_row["actual_expense_{0}".format(fy_field_name)]
+										if existing_advance_row["balance_budget_{0}".format(fy_field_name)] > 0:
+											existing_advance_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = (existing_advance_row["actual_expense_{0}".format(fy_field_name)] * 100) / existing_advance_row["budget_variance_{0}".format(fy_field_name)]
+										else:
+											existing_advance_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = 0
+										fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + advance_expense
 
-									if advance_report_row["budget_{0}".format(fy_field_name)] > 0:
-										spent_as_percent_against_budget = (advance_report_row["actual_expense_{0}".format(fy_field_name)] * 100) / advance_report_row["budget_{0}".format(fy_field_name)]
-									else:
-										spent_as_percent_against_budget = 0
-									advance_report_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = spent_as_percent_against_budget
+										total_row["actual_expense_{0}".format(fy_field_name)] = (total_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("actual_expense_{0}".format(fy_field_name))
+										total_row["budget_variance_{0}".format(fy_field_name)] = (total_row.get("budget_variance_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("budget_variance_{0}".format(fy_field_name))
+										total_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = (total_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name))
+										total_row["balance_budget_{0}".format(fy_field_name)] = (total_row.get("balance_budget_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("balance_budget_{0}".format(fy_field_name))
 
-									advances_data.append(advance_report_row)
-									account_list.append(account)
-									advance_report_row["previous_year_budget_variance"] = advance_report_row.get("budget_variance_{0}".format(fy_field_name))
-									fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + advance_expense
-									####### project_wise_balance_budget and project_wise_budget_variance are for overhead claculation purpose only
-									project_wise_balance_budget = project_wise_carry_forward_budget_variance + advance_report_row.get("budget_{0}".format(fy_field_name))
-									project_wise_budget_variance = project_wise_balance_budget - advance_expense
+										if len(data_for_overhead)>0:
+											for d in data_for_overhead:
+												if d.get("project_budget") == project:
+													d["total_expense_{0}".format(fy_field_name)] = d.get("total_expense_{0}".format(fy_field_name)) + (total_debit - total_credit)
+													d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + project_wise_carry_forward_budget_variance
+										
+										project_wise_carry_forward_budget_variance = project_wise_budget_variance
 
-									total_row["actual_expense_{0}".format(fy_field_name)] = (total_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + advance_report_row.get("actual_expense_{0}".format(fy_field_name))
-									total_row["budget_variance_{0}".format(fy_field_name)] = (total_row.get("budget_variance_{0}".format(fy_field_name)) or 0) + advance_report_row.get("budget_variance_{0}".format(fy_field_name))
-
-									if len(data_for_overhead)>0:
-										for d in data_for_overhead:
-											if d.get("project_budget") == project:
-												d["total_expense_{0}".format(fy_field_name)] = d.get("total_expense_{0}".format(fy_field_name)) + (total_debit - total_credit)
-												d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + project_wise_carry_forward_budget_variance
-									# for overhead calculations only
-									project_wise_carry_forward_budget_variance = project_wise_budget_variance
-								else :
-									for existing_advance_row in advances_data:
-										if account == existing_advance_row.get("description"):
-											# for overhead calculations only
-											project_wise_balance_budget = project_wise_carry_forward_budget_variance
-											project_wise_budget_variance = project_wise_balance_budget - advance_expense
-											existing_advance_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = (existing_advance_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("previous_year_budget_variance")
-											existing_advance_row["balance_budget_{0}".format(fy_field_name)] = (existing_advance_row.get("balance_budget_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name))
-											# advance_expense = advance_expense + (capex_row.total_debit - capex_row.total_credit)
-
-											if advance_expense > 0 and project not in project_budget_list:
-												project_budget_list.append(project)
-											existing_advance_row["actual_expense_{0}".format(fy_field_name)] = (existing_advance_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + advance_expense
-											existing_advance_row["project_budget"] = ", ".join(project_budget_list)
-											report_filters_for_hyperlink = frappe._dict({
-												"company": project_budget_allocation_details[0].company,
-												"account":json.dumps([account]),
-												"cost_center":json.dumps(project_budget_list),
-												"group_by": group_by,
-												"include_dimensions": include_dimensions,
-												"include_default_book_entries": include_default_book_entries,
-												"from_date": str(report_from_date),
-												"to_date": str(report_to_date)
-											})
-											
-											query_string = urlencode(report_filters_for_hyperlink)
-
-											report_link = (
-													"/app/query-report/General%20Ledger"
-												) + "?" + query_string
-
-											existing_advance_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
-											existing_advance_row["budget_variance_{0}".format(fy_field_name)] = (existing_advance_row.get("budget_variance_{0}".format(fy_field_name)) or 0) + existing_advance_row["balance_budget_{0}".format(fy_field_name)] - existing_advance_row["actual_expense_{0}".format(fy_field_name)]
-											if existing_advance_row["balance_budget_{0}".format(fy_field_name)] > 0:
-												existing_advance_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = (existing_advance_row["actual_expense_{0}".format(fy_field_name)] * 100) / existing_advance_row["budget_variance_{0}".format(fy_field_name)]
-											else:
-												existing_advance_row["spent_as_percent_against_budget_{0}".format(fy_field_name)] = 0
-											fy_wise_total_expenses_for_overhead = fy_wise_total_expenses_for_overhead + advance_expense
-
-											total_row["actual_expense_{0}".format(fy_field_name)] = (total_row.get("actual_expense_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("actual_expense_{0}".format(fy_field_name))
-											total_row["budget_variance_{0}".format(fy_field_name)] = (total_row.get("budget_variance_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("budget_variance_{0}".format(fy_field_name))
-											total_row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = (total_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name))
-											total_row["balance_budget_{0}".format(fy_field_name)] = (total_row.get("balance_budget_{0}".format(fy_field_name)) or 0) + existing_advance_row.get("balance_budget_{0}".format(fy_field_name))
-
-											if len(data_for_overhead)>0:
-												for d in data_for_overhead:
-													if d.get("project_budget") == project:
-														d["total_expense_{0}".format(fy_field_name)] = d.get("total_expense_{0}".format(fy_field_name)) + (total_debit - total_credit)
-														d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + project_wise_carry_forward_budget_variance
-											# for overhead calculations only
-											project_wise_carry_forward_budget_variance = project_wise_budget_variance
-							# if len(data_for_overhead)>0:
-							# 	for d in data_for_overhead:
-							# 		if d.get("project_budget") == project:
-							# 			d["total_expense_{0}".format(fy_field_name)] = d.get("total_expense_{0}".format(fy_field_name)) + fy_wise_total_expenses_for_overhead
-							# 			d["budget_{0}".format(fy_field_name)]= (d.get("budget_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) + total_capex_budget
-
-
-	print(total_row,"Total after advances+++++++++++++++++++++++++++++++++++++++")
-	print(data_for_overhead,"+++++++++++++++++++===========================data for overhead after advances")
 	# ==============================================================
 	# 5. OVERHEAD
 	# ==============================================================
-
 	overhead_data.append({"description":"<b>Overhead</b>"})
-	# overhead_calculation_based_on = filters.get("overhead_calculation_based_on")
 	total_previous_year_budget_variance = 0
 	total_previous_year_receipt_variance = 0
 	project_wise_carry_forward_budget_variance = 0
 	project_budget_list = []
-	print("**********OVERHEAD CALCULATION STARTS HERE**********")
-	print(data_for_overhead,"+++++++++++++data_for_overhead+++++++++++++")
+	
 	if len(project_budget)>0:
 		overhead_report_row = {}
 		for project in project_budget:
 			project_wise_carry_forward_budget_variance = 0
 			if len(fiscal_year_list)>0:
 				for fy in fiscal_year_list:
-					total_overhead_budget = 0
-					total_overhead_receipt = 0
-					total_overhead_actual = 0
-					overhead_expense = 0
+					total_overhead_budget = total_overhead_receipt = total_overhead_actual = overhead_expense = 0
 					fy_field_name = (fy.name).replace("-","_")
 
-					project_budget_allocation_details = frappe.db.sql(f"""
-									SELECT
-										tpb.name,
-										tpb.company,
-										tpb.project_start_date,
-										tpb.grant_ledger_account,
-										tpb.overhead_cost_center,
-										tpba.overhead_percentage,
-										tpba.overhead_amount,
-										tpba.fiscal_year,
-										tfy.year_start_date,
-										tfy.year_end_date,
-										tpba.total_receipt AS receipt_from_project_budget
-									FROM
-										`tabFiscal Year Wise Project Budget Allocation` tpba
-									INNER JOIN `tabFiscal Year` tfy ON
-										tfy.name = tpba.fiscal_year
-									INNER JOIN `tabProject Budget` tpb ON
-										tpb.name = tpba.project_budget
-									WHERE tpba.project_budget = '{project}' and tpba.fiscal_year = '{fy.name}'
-						""",as_dict= True)
+					project_budget_allocation_details = base_alloc_map.get((project, fy.name), [])
+					
 					if len(project_budget_allocation_details)>0:
-
 						if getdate(project_budget_allocation_details[0].project_start_date) >= getdate(project_budget_allocation_details[0].year_start_date):
-							print("IN FROM IFF",project_budget_allocation_details[0].name)
 							report_from_date = getdate(project_budget_allocation_details[0].project_start_date)
 						else :
-							print("IN FROM ELSE",getdate(project_budget_allocation_details[0].year_start_date))
 							report_from_date = getdate(project_budget_allocation_details[0].year_start_date)
 						
 						if getdate(filters.get("to_date")) >= getdate(project_budget_allocation_details[0].year_end_date):
-							print("IN TO IF")
 							report_to_date = getdate(project_budget_allocation_details[0].year_end_date)
 						else:
-							print("IN TO ELSE")
 							report_to_date = getdate(filters.get("to_date"))
 
 						total_overhead_budget = total_overhead_budget + project_budget_allocation_details[0].overhead_amount
@@ -1325,30 +1028,22 @@ def get_data(filters):
 					for row in overhead_data:
 						if row.get("description") == "<b>Overhead</b>":
 							row["budget_{0}".format(fy_field_name)] = (row.get("budget_{0}".format(fy_field_name)) or 0) + total_overhead_budget
-							# row["actual_expense_{0}".format(fy_field_name)] = (row.get("actual_expense_{0}".format(fy_field_name)) or 0) + overhead_expense
 							row["total_receipt_{0}".format(fy_field_name)] = (row.get("total_receipt_{0}".format(fy_field_name)) or 0) + total_overhead_receipt
-
 							row["carry_forward_budget_from_last_year_{0}".format(fy_field_name)] = (row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) or 0) + total_previous_year_budget_variance
 							row["carry_forward_receipt_from_last_year_{0}".format(fy_field_name)] = (row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) or 0) + total_previous_year_receipt_variance
-
 							row["balance_budget_{0}".format(fy_field_name)] = (row.get("balance_budget_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_budget_from_last_year_{0}".format(fy_field_name)) + total_overhead_budget
 							row["balance_receipt_{0}".format(fy_field_name)] = (row.get("balance_receipt_{0}".format(fy_field_name)) or 0) + row.get("carry_forward_receipt_from_last_year_{0}".format(fy_field_name)) + total_overhead_receipt
 							
 							if len(data_for_overhead)>0:
 								for d in data_for_overhead:
 									if d.get("project_budget") == project:
-
 										overhead_amount_to_calculate_actual_percentage = project_wise_carry_forward_budget_variance + total_overhead_budget
 										total_budget_to_calculate_overhead_actual_percentage = d.get("budget_{0}".format(fy_field_name))
-										print(total_budget_to_calculate_overhead_actual_percentage,"===============total_budget_to_calculate_overhead_actual_percentage")
 										if total_budget_to_calculate_overhead_actual_percentage>0:
 											overhead_actual_percentage = (overhead_amount_to_calculate_actual_percentage / total_budget_to_calculate_overhead_actual_percentage ) * 100
 										else :
 											overhead_actual_percentage = 0
-										print(overhead_amount_to_calculate_actual_percentage,"=============overhead_amount_to_calculate_actual_percentage----------------")
-										print(overhead_actual_percentage,total_budget_to_calculate_overhead_actual_percentage,"--------------------calculation for overhead expense------------------", d.get("total_expense_{0}".format(fy_field_name)))
 										overhead_expense = overhead_expense + (( d.get("total_expense_{0}".format(fy_field_name)) * overhead_actual_percentage ) / 100 )
-										print(overhead_expense,"-------------------------------overhead expense")
 										if project not in project_budget_list:
 											project_budget_list.append(project)
 							
@@ -1357,7 +1052,6 @@ def get_data(filters):
 							project_wise_carry_forward_budget_variance = project_wise_budget_variance
 
 							row["actual_expense_{0}".format(fy_field_name)] = (row.get("actual_expense_{0}".format(fy_field_name)) or 0) + flt(overhead_expense,0)
-
 							row["budget_variance_{0}".format(fy_field_name)] = (row.get("budget_variance_{0}".format(fy_field_name)) or 0) + row.get("balance_budget_{0}".format(fy_field_name)) - flt(overhead_expense,0)
 							row["receipt_variance_{0}".format(fy_field_name)] = (row.get("receipt_variance_{0}".format(fy_field_name)) or 0) + row.get("balance_receipt_{0}".format(fy_field_name)) - flt(overhead_expense,0)
 
@@ -1382,15 +1076,11 @@ def get_data(filters):
 							total_row["balance_budget_{0}".format(fy_field_name)] = (total_row.get("balance_budget_{0}".format(fy_field_name)) or 0) + row.get("balance_budget_{0}".format(fy_field_name))
 							total_row["balance_receipt_{0}".format(fy_field_name)] = (total_row.get("balance_receipt_{0}".format(fy_field_name)) or 0) + row.get("balance_receipt_{0}".format(fy_field_name))
 
-	print(total_row,"Total after overhead+++++++++++++++++++++++++++++++++++++++")
 	# ==============================================================
 	# 6. INCOME
 	# ==============================================================
 	income_data.append({"description":"<b>Income</b>"})
-
-	company_default_income_account = company.custom_default_budget_income_account
 	account_list = []
-	
 	total_income = 0
 
 	if len(project_budget)>0:
@@ -1399,68 +1089,38 @@ def get_data(filters):
 				for fy in fiscal_year_list:
 					income = 0
 					fy_field_name = (fy.name).replace("-","_")
-					project_budget_allocation_details = frappe.db.sql(f"""
-									SELECT
-										tpb.name,
-										tpb.company,
-										tfy.year_start_date,
-										tfy.year_end_date,
-										tpb.project_start_date,
-										tpba.fiscal_year
-									FROM
-										`tabFiscal Year Wise Project Budget Allocation` tpba
-									INNER JOIN `tabFiscal Year` tfy ON
-										tfy.name = tpba.fiscal_year
-									INNER JOIN `tabProject Budget` tpb ON
-										tpb.name = tpba.project_budget
-									WHERE tpba.project_budget = '{project}' and tpba.fiscal_year = '{fy.name}'
-								""",as_dict= True)
+					
+					project_budget_allocation_details = base_alloc_map.get((project, fy.name), [])
+					
 					if len(project_budget_allocation_details)>0:
 						group_by = "Group by Account"
-						include_dimensions = 1
-						include_default_book_entries = 1
+						include_dimensions, include_default_book_entries = 1, 1
 
 						if getdate(project_budget_allocation_details[0].project_start_date) >= getdate(project_budget_allocation_details[0].year_start_date):
-							print("IN FROM IFF",project_budget_allocation_details[0].name)
 							report_from_date = getdate(project_budget_allocation_details[0].project_start_date)
 						else :
-							print("IN FROM ELSE",getdate(project_budget_allocation_details[0].year_start_date))
 							report_from_date = getdate(project_budget_allocation_details[0].year_start_date)
 						
 						if getdate(filters.get("to_date")) >= getdate(project_budget_allocation_details[0].year_end_date):
-							print("IN TO IF")
 							report_to_date = getdate(project_budget_allocation_details[0].year_end_date)
 						else:
-							print("IN TO ELSE")
 							report_to_date = getdate(filters.get("to_date"))
 
+						# 🟢 FIXED: Changed .name to .project_budget
 						filters_of_income_for_general_ledger = frappe._dict({
-							"company": project_budget_allocation_details[0].company,
-							"from_date": report_from_date,
-							"to_date": report_to_date,
-							"account":[company_default_income_account],
-							"cost_center":[project_budget_allocation_details[0].name],
-							"group_by": group_by,
-							"include_dimensions": include_dimensions,
-							"include_default_book_entries": include_default_book_entries
+							"company": project_budget_allocation_details[0].company, "from_date": report_from_date, "to_date": report_to_date,
+							"account":[company_default_income_account], "cost_center":[project_budget_allocation_details[0].project_budget], # 🟢 FIXED
+							"group_by": group_by, "include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries
 						})
 
 						report_filters_for_hyperlink = frappe._dict({
-							"company": project_budget_allocation_details[0].company,
-							"account":json.dumps([company_default_income_account]),
-							"cost_center":json.dumps(project_budget),
-							"group_by": group_by,
-							"include_dimensions": include_dimensions,
-							"include_default_book_entries": include_default_book_entries,
-							"from_date": str(report_from_date),
-							"to_date": str(report_to_date)
+							"company": project_budget_allocation_details[0].company, "account":json.dumps([company_default_income_account]),
+							"cost_center":json.dumps(project_budget), "group_by": group_by, 
+							"include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries,
+							"from_date": str(report_from_date), "to_date": str(report_to_date)
 						})
-						
 						query_string = urlencode(report_filters_for_hyperlink)
-
-						report_link = (
-								"/app/query-report/General%20Ledger"
-							) + "?" + query_string
+						report_link = ("/app/query-report/General%20Ledger") + "?" + query_string
 								
 						gl_report_data_for_income = gl_execute(filters_of_income_for_general_ledger)
 
@@ -1468,11 +1128,10 @@ def get_data(filters):
 							for income_row in gl_report_data_for_income[1]:
 								if income_row.get("account") and income_row.get("account") not in ["'Opening'","'Closing (Opening + Total)'","'Total'"]:
 									if income_row.get("voucher_type") != "Period Closing Voucher":
-										### check entry is journal entry or not as check box is in Journal Entry only
+										
 										if income_row.get("voucher_type") == "Journal Entry":
-											ignore_in_budget_vs_actual = frappe.get_cached_value("Journal Entry",income_row.get("voucher_no"),"custom_to_ignore_in_budget_vs_actual")
+											ignore_in_budget_vs_actual = 1 if income_row.get("voucher_no") in ignored_jes else 0
 										else :
-											### If it is not journal entry then always consider...
 											ignore_in_budget_vs_actual = 0
 
 										if ignore_in_budget_vs_actual == 0:
@@ -1483,31 +1142,25 @@ def get_data(filters):
 												income_report_row = {}
 												income_report_row["description"] = income_row.get("account")
 												income_report_row["indent"] = 1
-												income_report_row["project_budget"] = project_budget_allocation_details[0].name
+												income_report_row["project_budget"] = project_budget_allocation_details[0].project_budget # 🟢 FIXED
 												income_report_row["budget_{0}".format(fy_field_name)] = 0
 												income_report_row["total_receipt_{0}".format(fy_field_name)] = income
 												income_report_row["general_ledger_report_link_{0}".format(fy_field_name)] = report_link
 												income_data.append(income_report_row)
 												account_list.append(income_row.get("account"))
-												# total_row["total_receipt_{0}".format(fy_field_name)] = (total_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + income_report_row.get("total_receipt_{0}".format(fy_field_name))
 											else :
 												for existing_income_row in income_data:
 													if existing_income_row.get("description") == income_row.get("account"):
 														income = income + (income_row.get("credit") - income_row.get("debit"))
 														existing_income_row["total_receipt_{0}".format(fy_field_name)] = income
 														total_income = total_income + (income_row.get("credit") - income_row.get("debit"))
-														# total_row["total_receipt_{0}".format(fy_field_name)] = (total_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + income_report_row.get("total_receipt_{0}".format(fy_field_name))
-
 						else:
 							income = 0
 						total_row["total_receipt_{0}".format(fy_field_name)] = (total_row.get("total_receipt_{0}".format(fy_field_name)) or 0) + income
-	print(total_row,"Total after income+++++++++++++++++++++++++++++++++++++++")
 
 	report_data = expense_data + investment_data + capex_data + advances_data + overhead_data + income_data
 	report_data.append(total_row)
 
-	#set column's width based on max data
-	print(max_description_length,"----------length")
 	columns = get_columns(filters)
 	if len(columns)>0:
 		for col in columns:
@@ -1520,41 +1173,32 @@ def get_data(filters):
 
 def get_total_receipt_amount_from_general_ledger(company,start_date,end_date,grant_ledger_account,cost_center):
 	group_by = "Group by Voucher (Consolidated)"
-	include_dimensions = 1
-	include_default_book_entries = 1
-
+	include_dimensions, include_default_book_entries = 1, 1
 	total_receipt = 0
 
 	filters_of_receipt_for_general_ledger = frappe._dict({
-		"company": company,
-		"from_date": start_date,
-		"to_date": end_date,
-		"account":[grant_ledger_account],
-		"cost_center":[cost_center],
-		"group_by": group_by,
-		"include_dimensions": include_dimensions,
-		"include_default_book_entries": include_default_book_entries
+		"company": company, "from_date": start_date, "to_date": end_date,
+		"account":[grant_ledger_account], "cost_center":[cost_center],
+		"group_by": group_by, "include_dimensions": include_dimensions, "include_default_book_entries": include_default_book_entries
 	})
 
-	### consider in receipt if any of the below account list is used in against account in General Ledger report
-	receipt_cash_account_list = get_child_cash_account_of_company(company)
-	company_abbr = frappe.db.get_value("Company",company,"abbr")
-	bank_charges_account = frappe.db.get_value("Company",company,"custom_bank_charges_account")
+	company_doc = frappe.get_cached_doc("Company", company)
+	bank_charges_account = company_doc.custom_bank_charges_account
+	
 	if not bank_charges_account:
 		frappe.throw("Please set Bank Charges Account in Company Master")
+
+	ignored_jes = set(frappe.get_all("Journal Entry", filters={"custom_to_ignore_in_budget_vs_actual": 1, "docstatus": 1}, pluck="name"))
 
 	gl_report_data_for_receipt = gl_execute(filters_of_receipt_for_general_ledger)
 
 	if len(gl_report_data_for_receipt)>1 and gl_report_data_for_receipt[1] and len(gl_report_data_for_receipt[1])>0:
-		total_debit = 0
-		total_credit = 0
+		total_debit, total_credit = 0, 0
 		for d in gl_report_data_for_receipt[1]:
-
-			## check entry is journal entry or not as check box is in Journal Entry only
+			
 			if d.get("voucher_type") == "Journal Entry":
-				ignore_in_budget_vs_actual = frappe.get_cached_value("Journal Entry",d.get("voucher_no"),"custom_to_ignore_in_budget_vs_actual")
+				ignore_in_budget_vs_actual = 1 if d.get("voucher_no") in ignored_jes else 0
 			else :
-				### If it is not journal entry then always consider...
 				ignore_in_budget_vs_actual = 0
 
 			if ignore_in_budget_vs_actual == 0:
@@ -1565,8 +1209,6 @@ def get_total_receipt_amount_from_general_ledger(company,start_date,end_date,gra
 	else:
 		total_receipt = 0
 	
-	print(total_receipt,"-------------------------------------------------------total receipt")
-
 	return total_receipt
 
 @frappe.whitelist()

@@ -137,11 +137,11 @@ doctype_js = {"Company" : "public/js/company.js"}
 # ---------------
 # Hook on document methods and events
 
-doc_events = {
-	"Report": {
-		"validate": "budget_track.api.set_prepared_report_zero"
-	}
-}
+# doc_events = {
+# 	"Report": {
+# 		"validate": "budget_track.api.set_prepared_report_zero"
+# 	}
+# }
 
 # Scheduled Tasks
 # ---------------
