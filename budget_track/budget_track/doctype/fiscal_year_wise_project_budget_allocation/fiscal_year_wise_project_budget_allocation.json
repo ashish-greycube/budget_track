@@ -8,13 +8,9 @@
  "field_order": [
   "project_budget",
   "fiscal_year",
-  "startup_investment",
-  "startup_investment_percentage",
   "company",
   "total_budget",
   "column_break_ioib",
-  "capex",
-  "capex_percentage",
   "total_expenses",
   "expense_percentage",
   "overhead_percentage",
@@ -41,18 +37,8 @@
    "reqd": 1
   },
   {
-   "fieldname": "startup_investment",
-   "fieldtype": "Currency",
-   "label": "Startup Investment"
-  },
-  {
    "fieldname": "column_break_ioib",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "capex",
-   "fieldtype": "Currency",
-   "label": "Capex"
   },
   {
    "fieldname": "overhead_percentage",
@@ -98,20 +84,7 @@
    "read_only": 1
   },
   {
-   "fieldname": "capex_percentage",
-   "fieldtype": "Percent",
-   "hidden": 1,
-   "label": "Capex Percentage",
-   "read_only": 1
-  },
-  {
-   "fieldname": "startup_investment_percentage",
-   "fieldtype": "Percent",
-   "hidden": 1,
-   "label": "Startup Investment Percentage",
-   "read_only": 1
-  },
-  {
+   "description": "Expense + Overhead",
    "fieldname": "total_budget",
    "fieldtype": "Currency",
    "label": "Total Budget",
@@ -126,7 +99,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-22 12:05:16.083630",
+ "modified": "2026-06-25 12:05:28.272675",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Fiscal Year Wise Project Budget Allocation",

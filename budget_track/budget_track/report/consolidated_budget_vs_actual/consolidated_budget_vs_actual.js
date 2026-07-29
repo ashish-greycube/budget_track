@@ -1,7 +1,7 @@
-// Copyright (c) 2025, GreyCube Technologies and contributors
+// Copyright (c) 2026, GreyCube Technologies and contributors
 // For license information, please see license.txt
 
-frappe.query_reports["Budget Vs Actual ( Consolidated )"] = {
+frappe.query_reports["Consolidated Budget Vs Actual"] = {
 	"filters": [
 		{
 			"fieldname": "company",
@@ -26,14 +26,17 @@ frappe.query_reports["Budget Vs Actual ( Consolidated )"] = {
 
 	formatter: function(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
-		console.log(data.general_legder_url)
-		// Exclude linking for headres
-	
-		if (data && column.fieldname == "actual_expense" && data.indent == 1) {
 
-			value = "<a href="+data.general_legder_url+" target='_blank' style='color: var(--text-color); font-weight: bold; text-decoration: underline;'>"+value+"</a>"
+		if (data && column.fieldname == "revenue_expense" && data._revenue_expense_link) {
+
+			value = "<a href="+data._revenue_expense_link+" target='_blank' style='color: var(--text-color); font-weight: bold; text-decoration: underline;'>"+value+"</a>"
 		}
-		
+
+		if (data && column.fieldname == "capital_expense" && data._capital_expense_link) {
+
+			value = "<a href="+data._capital_expense_link+" target='_blank' style='color: var(--text-color); font-weight: bold; text-decoration: underline;'>"+value+"</a>"
+		}
+
 		if (data && data.spent_as_percent_against_budget && data.spent_as_percent_against_budget > 100 && column.fieldname == "spent_as_percent_against_budget") {
 			value = "<span style='color:red'>" + value+ "</span>"
 		}

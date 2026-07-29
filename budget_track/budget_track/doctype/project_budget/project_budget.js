@@ -40,29 +40,15 @@ frappe.ui.form.on("Project Budget", {
             }
         })
 
-        
-	},
-
-    company(frm){
-        frappe.db.get_value("Company",frm.doc.company,"custom_default_budget_expense_account")
-        .then(r => {
-            console.log(r.message.custom_default_budget_expense_account,"===",frm.doc.company)
-            if (r.message.custom_default_budget_expense_account == null || r.message.custom_default_budget_expense_account == ""){
-                frappe.throw(__("Please set Company Default Expense Account in Company Doctype"))
-            } else {
-                console.log("IN ELSE")
-                frm.set_query("description", "particulars_for_expenses", function(doc){
-                return {
-                    filters: {
-                        "company": frm.doc.company,
-                        "parent_account":r.message.custom_default_budget_expense_account,
-                        "is_group":0
-                    },
-                }
-            })
+        frm.set_query("description" , "particulars_for_expenses", function(doc){
+            return {
+                filters: {
+                    "company": doc.company,
+                    // "is_group":0
+                },
             }
         })
-    },
+	},
 
     refresh(frm) {
         frappe.db.get_list("Fiscal Year Wise Project Budget Allocation", {
@@ -157,8 +143,8 @@ let show_budget_vs_actual_consolidate_report = function(frm, type) {
     };
     
     if (type == "Consolidated") {
-        frappe.set_route("query-report", "Budget Vs Actual ( Consolidated )");
+        frappe.set_route("query-report", "Consolidated Budget Vs Actual");
     } else if (type == "FY Wise") {
-        frappe.set_route("query-report", "Budget Vs Actual");
+        frappe.set_route("query-report", "Fiscal Year Wise Budget Vs Actual");
     }
 }

@@ -7,10 +7,6 @@
  "field_order": [
   "company",
   "total_budget",
-  "startup_investment",
-  "startup_investment_percentage",
-  "capex",
-  "capex_percentage",
   "total_expenses",
   "expense_percentage",
   "column_break_frmm",
@@ -35,16 +31,11 @@
    "reqd": 1
   },
   {
-   "description": "Startup Investment + Capex + Total Expenses",
+   "description": "Total Expenses + Overhead Amount",
    "fieldname": "total_budget",
    "fieldtype": "Currency",
    "label": "Total Budget",
    "read_only": 1
-  },
-  {
-   "fieldname": "startup_investment",
-   "fieldtype": "Currency",
-   "label": "Startup Investment"
   },
   {
    "fieldname": "total_expenses",
@@ -99,11 +90,6 @@
    "options": "Particulars for Expenses"
   },
   {
-   "fieldname": "capex",
-   "fieldtype": "Currency",
-   "label": "Capex"
-  },
-  {
    "depends_on": "eval:doc.company",
    "fieldname": "overhead_cost_center",
    "fieldtype": "Link",
@@ -114,20 +100,6 @@
    "fieldname": "overhead_percentage",
    "fieldtype": "Percent",
    "label": "Overhead %",
-   "read_only": 1
-  },
-  {
-   "fieldname": "startup_investment_percentage",
-   "fieldtype": "Percent",
-   "hidden": 1,
-   "label": "Startup Investment Percentage",
-   "read_only": 1
-  },
-  {
-   "fieldname": "capex_percentage",
-   "fieldtype": "Percent",
-   "hidden": 1,
-   "label": "Capex Percentage",
    "read_only": 1
   },
   {
@@ -151,7 +123,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-22 12:04:50.046247",
+ "modified": "2026-06-22 12:45:23.161284",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Project Budget",

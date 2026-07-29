@@ -1,8 +1,8 @@
-// Copyright (c) 2025, GreyCube Technologies and contributors
+// Copyright (c) 2026, GreyCube Technologies and contributors
 // For license information, please see license.txt
 
-frappe.query_reports["Budget Vs Actual"] = {
-	"filters": [
+frappe.query_reports["Fiscal Year Wise Budget Vs Actual"] = {
+		"filters": [
 		{
 			"fieldname": "company",
 			"label":__("Company"),
@@ -59,19 +59,33 @@ frappe.query_reports["Budget Vs Actual"] = {
 		value = default_formatter(value, row, column, data);
 
         // 1. Check if the current column is an "actual_expense" column
-        if (column.fieldname && column.fieldname.startsWith("actual_expense_")) {
-            
+        if (column.fieldname && column.fieldname.startsWith("revenue_expense_")) {
+
             // Extract the year part (e.g., "2023_2024" from "actual_expense_2023_2024")
-            let financial_year = column.fieldname.replace("actual_expense_", "");
-            
+            let financial_year = column.fieldname.replace("revenue_expense_", "");
+
             // Construct the corresponding ledger link key name
             let link_fieldname = `general_ledger_report_link_${financial_year}`;
 
             // 2. If the link exists in the row data, wrap it in an anchor tag
             if (data && data[link_fieldname]) {
                 let url = data[link_fieldname];
-                
+
                 // Return the clickable hyperlink styled to look clean in Frappe's grid
+                return `<a href="${url}" target="_blank" style="color: var(--text-color); font-weight: bold; text-decoration: underline;">${value}</a>`;
+            }
+        }
+
+        // Same hyperlink treatment for the "capital_expense" column, per fiscal year
+        if (column.fieldname && column.fieldname.startsWith("capital_expense_")) {
+
+            let financial_year = column.fieldname.replace("capital_expense_", "");
+
+            let link_fieldname = `capital_expense_report_link_${financial_year}`;
+
+            if (data && data[link_fieldname]) {
+                let url = data[link_fieldname];
+
                 return `<a href="${url}" target="_blank" style="color: var(--text-color); font-weight: bold; text-decoration: underline;">${value}</a>`;
             }
         }
@@ -106,7 +120,5 @@ function go_to_consolidated_report(report) {
 		company: report.get_values().company,
 		project_budget: report.get_values().project_budget,
 	};                    
-	frappe.set_route("query-report", "Budget Vs Actual ( Consolidated )");
-	console.log("go_to_consolidated_report")
-	console.log(report.get_values().company, "-------report", report.get_values().project_budget,  "-------member")
+	frappe.set_route("query-report", "Consolidated Budget Vs Actual");
 }

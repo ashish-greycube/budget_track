@@ -8,19 +8,12 @@ from frappe.model.document import Document
 class ProjectBudget(Document):
 
 	def validate(self):
-		# if self.startup_investment and self.capex and self.total_expenses and self.overhead_percentage:
-		# overhead_amount = ((self.total_budget or 0) * (self.overhead_percentage or 0) ) / 100
-		# percentage_without_overhead = 100 - (self.overhead_percentage or 0)
-		self.total_budget = (self.startup_investment or 0) + (self.total_expenses or 0) + (self.capex or 0) + (self.overhead_amount or 0)
+		self.total_budget = (self.total_expenses or 0) + (self.overhead_amount or 0)
 
 		if self.total_budget>0:
 			expenase_percentage = ( (self.total_expenses or 0) * 100 ) / (self.total_budget or 0)
-			capex_percentage = ( (self.capex or 0) * 100 ) / (self.total_budget or 0)
-			investment_percentage = ( (self.startup_investment or 0) * 100 ) / (self.total_budget or 0)
 			overhead_percentage = ( (self.overhead_amount or 0) * 100 ) / (self.total_budget or 0)
 
-			self.startup_investment_percentage = investment_percentage
-			self.capex_percentage = capex_percentage
 			self.expense_percentage = expenase_percentage
 			self.overhead_percentage = overhead_percentage
 
