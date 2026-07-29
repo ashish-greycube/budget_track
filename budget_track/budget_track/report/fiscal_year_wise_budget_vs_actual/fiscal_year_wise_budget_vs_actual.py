@@ -648,3 +648,19 @@ def get_data(filters):
 	final_data.append(total_row)
 	
 	return final_data
+
+@frappe.whitelist()
+def fetch_project_start_date_from_project_budget(project_budget):
+	import json
+	project_budget = json.loads(project_budget)
+	lowest_date = None
+	if len(project_budget)>0:
+		print(project_budget, type(project_budget),"----------->>>>>>>>>>>>>")
+		for project in project_budget:
+			project_start_date = frappe.db.get_value("Project Budget", project, "project_start_date")
+			print(project, project_start_date)
+			if lowest_date == None:
+				lowest_date = project_start_date
+			if lowest_date and lowest_date > project_start_date:
+				lowest_date = project_start_date
+	return lowest_date

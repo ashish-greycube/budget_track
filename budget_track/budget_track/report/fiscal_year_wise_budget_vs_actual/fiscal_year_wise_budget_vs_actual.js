@@ -27,7 +27,7 @@ frappe.query_reports["Fiscal Year Wise Budget Vs Actual"] = {
 					return;
 				}
 				console.log(project_budget,"---")
-				frappe.call('budget_track.budget_track.report.budget_vs_actual.budget_vs_actual.fetch_project_start_date_from_project_budget', {
+				frappe.call('budget_track.budget_track.report.fiscal_year_wise_budget_vs_actual.fiscal_year_wise_budget_vs_actual.fetch_project_start_date_from_project_budget', {
 						project_budget: project_budget
 					}).then(r => {
 						console.log(r.message)
