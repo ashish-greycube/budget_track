@@ -11,12 +11,12 @@
  "idx": 0,
  "is_standard": "Yes",
  "letter_head": null,
- "modified": "2026-07-29 12:07:45.376084",
+ "modified": "2026-08-06 17:28:58.551032",
  "modified_by": "Administrator",
  "module": "Budget Track",
  "name": "Consolidated Budget Vs Actual",
  "owner": "Administrator",
- "prepared_report": 1,
+ "prepared_report": 0,
  "ref_doctype": "GL Entry",
  "report_name": "Consolidated Budget Vs Actual",
  "report_type": "Script Report",
@@ -29,6 +29,9 @@
   },
   {
    "role": "Auditor"
+  },
+  {
+   "role": "System Manager"
   }
  ],
  "timeout": 0
