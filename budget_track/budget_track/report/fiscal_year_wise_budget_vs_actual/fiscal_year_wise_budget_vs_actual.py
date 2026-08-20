@@ -13,8 +13,8 @@ from urllib.parse import urlencode
 def execute(filters=None):
 	if not filters:
 		filters = {}
-	columns = get_columns(filters)
-	data = get_data(filters)
+	data, columns = get_data(filters)
+	# data = get_data(filters)
 	return columns, data
 
 def get_columns(filters):
@@ -33,89 +33,91 @@ def get_columns(filters):
 	
 	for i, fy in enumerate(fiscal_year_list):
 		fy_field_name = fy.name.replace("-", "_")
-		
+		fy_label = fy.name
+		start, end = fy_label.split("-")
+		fy_label = f"{start.strip()[-2:]}-{end.strip()[-2:]}"
 		# Columns for subsequent years carrying over past balances
 		if i > 0:
 			columns.append({
 				"fieldname": f"carry_forward_budget_from_last_year_{fy_field_name}",
-				"label": _(f"Carry Forward Budget ({fy.name})"),
-				"fieldtype": "Currency", "width": 150
+				"label": _(f"C/F Budget ({fy_label})"),
+				"fieldtype": "Currency", "width": 200
 			})
 		
 		columns.append({
 			"fieldname": f"budget_{fy_field_name}",
-			"label": _(f"Budget Allocated ({fy.name})"),
-			"fieldtype": "Currency", "width": 140
+			"label": _(f"Budget ({fy_label})"),
+			"fieldtype": "Currency", "width": 180
 		})
 		
 		if i > 0:
 			columns.append({
 				"fieldname": f"balance_budget_{fy_field_name}",
-				"label": _(f"Total Balance Budget ({fy.name})"),
-				"fieldtype": "Currency", "width": 150
+				"label": _(f"Total Budget ({fy_label})"),
+				"fieldtype": "Currency", "width": 200
 			})
 			columns.append({
 				"fieldname": f"carry_forward_receipt_from_last_year_{fy_field_name}",
-				"label": _(f"Carry Forward Receipt ({fy.name})"),
-				"fieldtype": "Currency", "width": 150
+				"label": _(f"C/F Receipt ({fy_label})"),
+				"fieldtype": "Currency", "width": 200
 			})
 			
 		columns.append({
 			"fieldname": f"total_receipt_{fy_field_name}",
-			"label": _(f"Total Receipt ({fy.name})"),
-			"fieldtype": "Currency", "width": 140
+			"label": _(f"Receipt ({fy_label})"),
+			"fieldtype": "Currency", "width": 160
 		})
 		
 		if i > 0:
 			columns.append({
 				"fieldname": f"balance_receipt_{fy_field_name}",
-				"label": _(f"Total Available Fund ({fy.name})"),
-				"fieldtype": "Currency", "width": 150
+				"label": _(f"Total Receipt ({fy_label})"),
+				"fieldtype": "Currency", "width": 200
 			})
 			
 		columns.append({
 			"fieldname": f"capital_expense_{fy_field_name}",
-			"label": _(f"Capital Expenses ({fy.name})"),
-			"fieldtype": "Currency", "width": 140
+			"label": _(f"Capex ({fy_label})"),
+			"fieldtype": "Currency", "width": 150
 		})
 		columns.append({
 			"fieldname": f"revenue_expense_{fy_field_name}",
-			"label": _(f"Revenue Expense ({fy.name})"),
-			"fieldtype": "Currency", "width": 140
+			"label": _(f"Opex ({fy_label})"),
+			"fieldtype": "Currency", "width": 150
 		})
 		columns.append({
 			"fieldname": f"total_expense_{fy_field_name}",
-			"label": _(f"Total Expense ({fy.name})"),
-			"fieldtype": "Currency", "width": 140
+			"label": _(f"Total Exp ({fy_label})"),
+			"fieldtype": "Currency", "width": 150
 		})
 		columns.append({
 			"fieldname": f"budget_variance_{fy_field_name}",
-			"label": _(f"Budget Variance ({fy.name})"),
-			"fieldtype": "Currency", "width": 140
+			"label": _(f"Bal. Budget ({fy_label})"),
+			"fieldtype": "Currency", "width": 200
 		})
 		columns.append({
 			"fieldname": f"receipt_variance_{fy_field_name}",
-			"label": _(f"Receipt Variance ({fy.name})"),
-			"fieldtype": "Currency", "width": 140
+			"label": _(f"Bal. Receipt ({fy_label})"),
+			"fieldtype": "Currency", "width": 200
 		})
 		columns.append({
 			"fieldname": f"spent_as_percent_against_budget_{fy_field_name}",
-			"label": _(f"Spent % vs Budget ({fy.name})"),
-			"fieldtype": "Percent", "precision": 2, "width": 150
+			"label": _(f"Spent % Budget ({fy_label})"),
+			"fieldtype": "Percent", "precision": 2, "width": 200
 		})
 		columns.append({
 			"fieldname": f"spent_as_percent_against_receipt_{fy_field_name}",
-			"label": _(f"Spent % vs Receipt ({fy.name})"),
-			"fieldtype": "Percent", "precision": 2, "width": 150
+			"label": _(f"Spent % Receipt ({fy_label})"),
+			"fieldtype": "Percent", "precision": 2, "width": 200
 		})
 		columns.append({
 			"fieldname": f"general_ledger_report_link_{fy_field_name}",
-			"label": _(f"GL Link ({fy.name})"),
+			"label": _(f"GL Link ({fy_label})"),
 			"fieldtype": "Small Text", "width": 100, "hidden": 1
 		})
 		columns.append({
 			"fieldname": f"capital_expense_report_link_{fy_field_name}",
-			"label": _(f"Capital Expense GL Link ({fy.name})"),
+			"label": _(f"Capital Expense GL Link ({fy_label})"),
 			"fieldtype": "Small Text", "width": 100, "hidden": 1
 		})
 
@@ -145,6 +147,7 @@ def calculate_report_dates(p_start_date, y_start_date, y_end_date, filter_to_dat
 	return report_from_date, report_to_date
 
 def get_data(filters):
+	max_description_length = 0
 	project_budget = filters.get("project_budget") or []
 	company = filters.get("company")
 	if not company or not project_budget:
@@ -162,7 +165,6 @@ def get_data(filters):
 
 	fixed_asset_accounts=[]
 	if company_default_capex_account:
-		fixed_asset_accounts = set(frappe.get_all("Account", filters={"account_type": "Fixed Asset", "company": company, "parent_account":company_default_capex_account}, pluck="name"))
 		company_default_capex_account_type = frappe.db.get_value("Account",company_default_capex_account,"account_type")
 		if company_default_capex_account_type == "Fixed Asset":
 			fixed_asset_accounts.append(company_default_capex_account)
@@ -171,7 +173,7 @@ def get_data(filters):
 
 	# Combined list of accounts used across the Investment, Capex and Advance amount calculation logic below,
 	# reused to build the Capital Expense GL Entry hyperlink further below.
-	capital_expense_accounts = investment_accounts + list(fixed_asset_accounts) + advance_accounts
+	capital_expense_accounts = investment_accounts + fixed_asset_accounts + advance_accounts
 
 	fiscal_year_list = frappe.db.get_all("Fiscal Year",
 		or_filters={
@@ -245,7 +247,14 @@ def get_data(filters):
 	cc_bucket_map = get_cost_center_bucket_map(sorted_cc_list, company)
 
 	# Initialize master flat row dict context to remove hierarchical tree properties
-	report_rows_dict = {cc: {"description": cc} for cc in sorted_cc_list}
+	# report_rows_dict = {cc: {"description": cc} for cc in sorted_cc_list}
+	### Loop to check max width of cc to set column width
+	report_rows_dict = {}
+	for cc in sorted_cc_list:
+		report_rows_dict[cc] = {"description": cc}
+		if len(cc)>max_description_length:
+			max_description_length = len(cc)
+		
 	overhead_row = {"description": "Overhead"}
 	project_income_row = {"description": "Project Income"}
 	total_row = {"description": "<b>Total</b>"}
@@ -412,7 +421,9 @@ def get_data(filters):
 							cap_expense_by_cc[bucket] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 			# Capex Accounts
-			if fixed_asset_accounts:
+			account_type = frappe.db.get_value("Account",company_default_capex_account,"account_type")
+			if account_type == "Fixed Asset":
+			# if fixed_asset_accounts:
 				filters_capex = frappe._dict({
 					"company": company, "from_date": window_from, "to_date": window_to,
 					"account": list(fixed_asset_accounts), "cost_center": ccs_in_window,
@@ -646,8 +657,16 @@ def get_data(filters):
 	final_data.append(overhead_row)
 	final_data.append(project_income_row)
 	final_data.append(total_row)
-	
-	return final_data
+
+	columns = get_columns(filters)
+	if len(columns)>0:
+		for col in columns:
+			if col.get("fieldname") == "description":
+				if col.get("width")>max_description_length*8:
+					pass
+				else:
+					col["width"] = max_description_length*8
+	return final_data, columns
 
 @frappe.whitelist()
 def fetch_project_start_date_from_project_budget(project_budget):

@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import getdate, cstr, today, flt
+from frappe.utils import getdate, cstr, today, flt, get_link_to_form
 from erpnext.accounts.report.general_ledger.general_ledger import execute as gl_execute
 from budget_track.api import get_cost_center_bucket_map
 import json
@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 def execute(filters=None):
 	if not filters:
 		filters = {}
-	columns, data = get_columns(filters), get_data(filters)
+	data, columns = get_data(filters)
 	return columns, data
 
 def get_columns(filters):
@@ -25,11 +25,12 @@ def get_columns(filters):
 		{"fieldname": "total_expense", "label": _("Total Expense"), "fieldtype": "Currency", "width": 140},
 		{"fieldname": "budget_variance", "label": _("Budget Variance"), "fieldtype": "Currency", "width": 140},
 		{"fieldname": "receipt_variance", "label": _("Receipt Variance"), "fieldtype": "Currency", "width": 140},
-		{"fieldname": "spent_as_percent_against_budget", "label": _("Spent %age against Budget"), "fieldtype": "Percent", "precision": 2, "width": 160},
-		{"fieldname": "spent_as_percent_against_receipt", "label": _("Spent %age against Receipt"), "fieldtype": "Percent", "precision": 2, "width": 160}
+		{"fieldname": "spent_as_percent_against_budget", "label": _("Spent % against Budget"), "fieldtype": "Percent", "precision": 2, "width": 200},
+		{"fieldname": "spent_as_percent_against_receipt", "label": _("Spent % against Receipt"), "fieldtype": "Percent", "precision": 2, "width": 200}
 	]
 
 def get_data(filters):
+	max_description_length = 0
 	project_budget = filters.get("project_budget") or []
 	company = filters.get("company")
 	if not company or not project_budget:
@@ -44,11 +45,18 @@ def get_data(filters):
 	investment_accounts = [cstr(account.account) for account in company_doc.get("custom_default_budget_group_ledger_for_investment", [])]
 	advance_accounts = [acc for acc in [company_doc.custom_advance_to_employee, company_doc.custom_advance_to_vendor] if acc]
 	ignored_jes = set(frappe.get_all("Journal Entry", filters={"custom_to_ignore_in_budget_vs_actual": 1, "docstatus": 1}, pluck="name"))
-	fixed_asset_accounts = set(frappe.get_all("Account", filters={"account_type": "Fixed Asset", "company": company,"parent_account":company_default_capex_account}, pluck="name"))
+	# fixed_asset_accounts = set(frappe.get_all("Account", filters={"account_type": "Fixed Asset", "company": company,"parent_account":company_default_capex_account}, pluck="name"))
 
 	# Combined list of accounts used across the Investment, Capex and Advance amount calculation logic above,
 	# reused to build the Capital Expense GL Entry hyperlink further below.
-	capital_expense_accounts = investment_accounts + list(fixed_asset_accounts) + advance_accounts
+	fixed_asset_accounts=[]
+	if company_default_capex_account:
+		company_default_capex_account_type = frappe.db.get_value("Account",company_default_capex_account,"account_type")
+		if company_default_capex_account_type == "Fixed Asset":
+			fixed_asset_accounts.append(company_default_capex_account)
+	else :
+		frappe.throw(_("Please set Company Default Budget Capex Account in {0}".format(get_link_to_form("Company",company))))
+	capital_expense_accounts = investment_accounts + fixed_asset_accounts + advance_accounts
 
 	# Bulk query project details matching the new child table parameters
 	pb_query = frappe.db.sql("""
@@ -173,7 +181,9 @@ def get_data(filters):
 						budget_heads[bucket]["capital_expense"] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 		# Capex Accounts
-		if fixed_asset_accounts:
+		# if fixed_asset_accounts:
+		account_type = frappe.db.get_value("Account",company_default_capex_account,"account_type")
+		if account_type == "Fixed Asset":
 			filters_capex = frappe._dict({
 				"company": company, "from_date": start_date, "to_date": to_date,
 				"account": list(fixed_asset_accounts), "cost_center": ccs_in_group,
@@ -268,6 +278,8 @@ def get_data(filters):
 			"spent_as_percent_against_budget": flt((total_exp * 100) / data["budget"], 2) if data["budget"] > 0 else 0.0,
 			"spent_as_percent_against_receipt": flt((total_exp * 100) / data["total_receipt"], 2) if data["total_receipt"] > 0 else 0.0
 		}
+		if len(cc)>max_description_length:
+			max_description_length = len(cc)
 		
 		sum_budget += row["budget"]
 		sum_receipt += row["total_receipt"]
@@ -362,4 +374,13 @@ def get_data(filters):
 		"spent_as_percent_against_receipt": flt((final_total_exp * 100) / final_receipt, 2) if final_receipt > 0 else 0.0
 	})
 
-	return report_data
+	columns = get_columns(filters)
+	if len(columns)>0:
+		for col in columns:
+			if col.get("fieldname") == "description":
+				if col.get("width")>max_description_length*8:
+					pass
+				else:
+					col["width"] = max_description_length*8
+
+	return report_data, columns
