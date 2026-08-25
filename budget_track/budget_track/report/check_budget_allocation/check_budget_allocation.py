@@ -20,7 +20,8 @@ def get_columns(filters):
 			"fieldname": "budget_description",
 			"label":_("Budget Description"),
 			"fieldtype": "Data",
-			"width": 400
+			"width": 400,
+			"sticky": 1
 		},
 		{
 			"fieldname": "total_budget",

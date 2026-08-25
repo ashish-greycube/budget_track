@@ -19,7 +19,7 @@ def execute(filters=None):
 
 def get_columns(filters):
 	columns = [
-		{"fieldname": "description", "label": _("Description"), "fieldtype": "Data", "width": 300}
+		{"fieldname": "description", "label": _("Description"), "fieldtype": "Data", "width": 300, "sticky": 1}
 	]
 	
 	fiscal_year_list = frappe.db.get_all("Fiscal Year",

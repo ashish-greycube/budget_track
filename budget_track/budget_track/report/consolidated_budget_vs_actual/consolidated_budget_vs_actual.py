@@ -17,7 +17,7 @@ def execute(filters=None):
 
 def get_columns(filters):
 	return [
-		{"fieldname": "description", "label": _("Description"), "fieldtype": "Data", "width": 260},
+		{"fieldname": "description", "label": _("Description"), "fieldtype": "Data", "width": 260, "sticky": 1},
 		{"fieldname": "budget", "label": _("Budget"), "fieldtype": "Currency", "width": 140},
 		{"fieldname": "total_receipt", "label": _("Total Receipt"), "fieldtype": "Currency", "width": 140},
 		{"fieldname": "capital_expense", "label": _("Capital Expenses"), "fieldtype": "Currency", "width": 140},
