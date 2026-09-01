@@ -37,6 +37,11 @@ frappe.query_reports["Consolidated Budget Vs Actual"] = {
 			value = "<a href="+data._capital_expense_link+" target='_blank' style='color: var(--text-color); font-weight: bold; text-decoration: underline;'>"+value+"</a>"
 		}
 
+		if (data && column.fieldname == "total_receipt" && data._total_receipt_link) {
+
+			value = "<a href="+data._total_receipt_link+" target='_blank' style='color: var(--text-color); font-weight: bold; text-decoration: underline;'>"+value+"</a>"
+		}
+
 		if (data && data.spent_as_percent_against_budget && data.spent_as_percent_against_budget > 100 && column.fieldname == "spent_as_percent_against_budget") {
 			value = "<span style='color:red'>" + value+ "</span>"
 		}

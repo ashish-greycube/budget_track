@@ -89,6 +89,20 @@ frappe.query_reports["Fiscal Year Wise Budget Vs Actual"] = {
                 return `<a href="${url}" target="_blank" style="color: var(--text-color); font-weight: bold; text-decoration: underline;">${value}</a>`;
             }
         }
+
+        // Same hyperlink treatment for the "total_receipt" column (Project Income row only), per fiscal year
+        if (column.fieldname && column.fieldname.startsWith("total_receipt_")) {
+
+            let financial_year = column.fieldname.replace("total_receipt_", "");
+
+            let link_fieldname = `income_report_link_${financial_year}`;
+
+            if (data && data[link_fieldname]) {
+                let url = data[link_fieldname];
+
+                return `<a href="${url}" target="_blank" style="color: var(--text-color); font-weight: bold; text-decoration: underline;">${value}</a>`;
+            }
+        }
 		if (data && column.fieldname.includes("spent_as_percent_against_budget")) {
 			let percent_value = data[column.fieldname]
 			if (percent_value > 100) {

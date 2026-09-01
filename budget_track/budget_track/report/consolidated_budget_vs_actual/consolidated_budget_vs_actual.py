@@ -324,8 +324,22 @@ def get_data(filters):
 
 	############ --- Project Income Row Calculation --- ############
 	total_income_actual_receipt = 0.0
+	income_report_link = None
 	first_pb = pb_query[0] if pb_query else None
 	if first_pb:
+		report_filters_for_income_hyperlink = {
+			"company": company,
+			"account": json.dumps([company_default_income_account]),
+			"cost_center": json.dumps(project_budget),
+			"group_by": "Categorize by Voucher (Consolidated)",
+			"include_dimensions": 1,
+			"include_default_book_entries": 1,
+			"from_date": str(first_pb.project_start_date),
+			"to_date": str(today())
+		}
+		query_string_income = urlencode(report_filters_for_income_hyperlink)
+		income_report_link = f"/app/query-report/General%20Ledger?{query_string_income}"
+
 		filters_inc = frappe._dict({
 			"company": company, "from_date": first_pb.project_start_date, "to_date": getdate(today()),
 			"account": [company_default_income_account], "cost_center": project_budget,
@@ -344,6 +358,7 @@ def get_data(filters):
 		"description": "Project Income",
 		"budget": 0.0,
 		"total_receipt": total_income_actual_receipt,
+		"_total_receipt_link": income_report_link,       # Stores route context for the frontend JS formatter
 		"capital_expense": 0.0,
 		"revenue_expense": 0.0,
 		"total_expense": 0.0,

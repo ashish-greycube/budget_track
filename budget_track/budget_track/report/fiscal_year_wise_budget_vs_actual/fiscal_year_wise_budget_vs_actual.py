@@ -120,6 +120,11 @@ def get_columns(filters):
 			"label": _(f"Capital Expense GL Link ({fy_label})"),
 			"fieldtype": "Small Text", "width": 100, "hidden": 1
 		})
+		columns.append({
+			"fieldname": f"income_report_link_{fy_field_name}",
+			"label": _(f"Income GL Link ({fy_label})"),
+			"fieldtype": "Small Text", "width": 100, "hidden": 1
+		})
 
 	return columns
 
@@ -597,6 +602,14 @@ def get_data(filters):
 						total_income_actual_receipt += flt(gl_row.get("credit", 0)) - flt(gl_row.get("debit", 0))
 						
 		project_income_row[f"total_receipt_{fy_field_name}"] = total_income_actual_receipt
+
+		report_filters_for_income_hyperlink = {
+			"company": company, "account": json.dumps([company_default_income_account]), "cost_center": json.dumps(project_budget),
+			"group_by": "Categorize by Voucher (Consolidated)", "include_dimensions": 1, "include_default_book_entries": 1,
+			"from_date": str(getdate(inc_from_date)), "to_date": str(getdate(inc_to_date))
+		}
+		project_income_row[f"income_report_link_{fy_field_name}"] = f"/app/query-report/General%20Ledger?{urlencode(report_filters_for_income_hyperlink)}"
+
 		bal_inc_receipt = total_income_actual_receipt + income_carry_forward_receipt
 		
 		if idx > 0:
