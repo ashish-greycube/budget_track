@@ -177,8 +177,11 @@ def get_data(filters):
 			if len(gl_inv) > 1 and gl_inv[1]:
 				for gl_row in gl_inv[1]:
 					bucket = cc_bucket_map.get(gl_row.get("cost_center"))
-					if bucket:
-						budget_heads[bucket]["capital_expense"] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
+					if not bucket:
+						continue
+					if gl_row.get("voucher_type") == "Journal Entry" and gl_row.get("voucher_no") in ignored_jes:
+						continue
+					budget_heads[bucket]["capital_expense"] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 		# Capex Accounts
 		# if fixed_asset_accounts:
@@ -193,8 +196,11 @@ def get_data(filters):
 			if len(gl_capex) > 1 and gl_capex[1]:
 				for gl_row in gl_capex[1]:
 					bucket = cc_bucket_map.get(gl_row.get("cost_center"))
-					if bucket:
-						budget_heads[bucket]["capital_expense"] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
+					if not bucket:
+						continue
+					if gl_row.get("voucher_type") == "Journal Entry" and gl_row.get("voucher_no") in ignored_jes:
+						continue
+					budget_heads[bucket]["capital_expense"] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 		# Advances (Employee & Vendor Accounts)
 		if advance_accounts:
@@ -207,8 +213,11 @@ def get_data(filters):
 			if len(gl_adv) > 1 and gl_adv[1]:
 				for gl_row in gl_adv[1]:
 					bucket = cc_bucket_map.get(gl_row.get("cost_center"))
-					if bucket:
-						budget_heads[bucket]["capital_expense"] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
+					if not bucket:
+						continue
+					if gl_row.get("voucher_type") == "Journal Entry" and gl_row.get("voucher_no") in ignored_jes:
+						continue
+					budget_heads[bucket]["capital_expense"] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 	# --- Aggregate Actual Expenses Grouped strictly by Project Budget ---
 	project_expenses = {}

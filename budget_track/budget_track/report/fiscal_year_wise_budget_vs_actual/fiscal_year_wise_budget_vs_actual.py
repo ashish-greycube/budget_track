@@ -422,8 +422,11 @@ def get_data(filters):
 				if len(gl_inv) > 1 and gl_inv[1]:
 					for gl_row in gl_inv[1]:
 						bucket = cc_bucket_map.get(gl_row.get("cost_center"))
-						if bucket in cap_expense_by_cc:
-							cap_expense_by_cc[bucket] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
+						if bucket not in cap_expense_by_cc:
+							continue
+						if gl_row.get("voucher_type") == "Journal Entry" and gl_row.get("voucher_no") in ignored_jes:
+							continue
+						cap_expense_by_cc[bucket] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 			# Capex Accounts
 			account_type = frappe.db.get_value("Account",company_default_capex_account,"account_type")
@@ -438,8 +441,11 @@ def get_data(filters):
 				if len(gl_capex) > 1 and gl_capex[1]:
 					for gl_row in gl_capex[1]:
 						bucket = cc_bucket_map.get(gl_row.get("cost_center"))
-						if bucket in cap_expense_by_cc:
-							cap_expense_by_cc[bucket] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
+						if bucket not in cap_expense_by_cc:
+							continue
+						if gl_row.get("voucher_type") == "Journal Entry" and gl_row.get("voucher_no") in ignored_jes:
+							continue
+						cap_expense_by_cc[bucket] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 			if advance_accounts:
 				filters_adv = frappe._dict({
@@ -451,8 +457,11 @@ def get_data(filters):
 				if len(gl_adv) > 1 and gl_adv[1]:
 					for gl_row in gl_adv[1]:
 						bucket = cc_bucket_map.get(gl_row.get("cost_center"))
-						if bucket in cap_expense_by_cc:
-							cap_expense_by_cc[bucket] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
+						if bucket not in cap_expense_by_cc:
+							continue
+						if gl_row.get("voucher_type") == "Journal Entry" and gl_row.get("voucher_no") in ignored_jes:
+							continue
+						cap_expense_by_cc[bucket] += flt(gl_row.get("debit", 0)) - flt(gl_row.get("credit", 0))
 
 		# Phase C: finalize each cost center's row using the batched GL results
 		for cc in sorted_cc_list:
