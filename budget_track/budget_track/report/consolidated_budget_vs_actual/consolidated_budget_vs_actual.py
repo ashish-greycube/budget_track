@@ -34,7 +34,7 @@ def get_data(filters):
 	project_budget = filters.get("project_budget") or []
 	company = filters.get("company")
 	if not company or not project_budget:
-		return []
+		return [], get_columns(filters)
 
 	# Pre-fetch Company configurations
 	company_doc = frappe.get_cached_doc("Company", company)
@@ -70,7 +70,7 @@ def get_data(filters):
 	""", (tuple(project_budget),), as_dict=True)
 
 	if not pb_query:
-		return []
+		return [], get_columns(filters)
 
 	# Fetch structural child cost centers
 	all_child_cc = frappe.get_all("Cost Center", 

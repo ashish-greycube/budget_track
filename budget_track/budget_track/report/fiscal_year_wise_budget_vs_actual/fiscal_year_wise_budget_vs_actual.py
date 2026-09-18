@@ -23,9 +23,9 @@ def get_columns(filters):
 	]
 	
 	fiscal_year_list = frappe.db.get_all("Fiscal Year",
-		or_filters={
-			"year_start_date": ["between", [filters.get("from_date"), filters.get("to_date")]],
-			"year_end_date": ["between", [filters.get("from_date"), filters.get("to_date")]]
+		filters={
+			"year_start_date": ["<=", filters.get("to_date")],
+			"year_end_date": [">=", filters.get("from_date")]
 		},
 		fields=["name"],
 		order_by="year_start_date asc"
@@ -156,7 +156,10 @@ def get_data(filters):
 	project_budget = filters.get("project_budget") or []
 	company = filters.get("company")
 	if not company or not project_budget:
-		return []
+		return [], get_columns(filters)
+
+	if filters.get("from_date") and filters.get("to_date") and getdate(filters.get("from_date")) > getdate(filters.get("to_date")):
+		frappe.throw(_("From Date must be before To Date"))
 
 	# Pre-fetch Company configurations
 	company_doc = frappe.get_cached_doc("Company", company)
@@ -181,15 +184,15 @@ def get_data(filters):
 	capital_expense_accounts = investment_accounts + fixed_asset_accounts + advance_accounts
 
 	fiscal_year_list = frappe.db.get_all("Fiscal Year",
-		or_filters={
-			"year_start_date": ["between", [filters.get("from_date"), filters.get("to_date")]],
-			"year_end_date": ["between", [filters.get("from_date"), filters.get("to_date")]]
+		filters={
+			"year_start_date": ["<=", filters.get("to_date")],
+			"year_end_date": [">=", filters.get("from_date")]
 		},
 		fields=["name", "year_start_date", "year_end_date"],
 		order_by="year_start_date asc"
 	)
 	if not fiscal_year_list:
-		return []
+		return [], get_columns(filters)
 
 	fy_names = tuple([fy.name for fy in fiscal_year_list])
 	pb_tuple = tuple(project_budget)

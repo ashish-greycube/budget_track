@@ -11,10 +11,10 @@ frappe.query_reports["Consolidated Budget Vs Actual"] = {
 			"reqd": 1
 		},
 		{
-			fieldname: "project_budget",
-			label: __("Project Budget"),
-			fieldtype: "MultiSelectList",
-			options: "Project Budget",
+			"fieldname": "project_budget",
+			"label": __("Project Budget"),
+			"fieldtype": "MultiSelectList",
+			"options": "Project Budget",
 			"reqd": 1,
 			get_data: function (txt) {
 				return frappe.db.get_link_options("Project Budget", txt, {

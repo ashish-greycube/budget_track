@@ -11,10 +11,10 @@ frappe.query_reports["Fiscal Year Wise Budget Vs Actual"] = {
 			"reqd": 1
 		},
 		{
-			fieldname: "project_budget",
-			label: __("Project Budget"),
-			fieldtype: "MultiSelectList",
-			options: "Project Budget",
+			"fieldname": "project_budget",
+			"label": __("Project Budget"),
+			"fieldtype": "MultiSelectList",
+			"options": "Project Budget",
 			"reqd": 1,
 			get_data: function (txt) {
 				return frappe.db.get_link_options("Project Budget", txt, {
@@ -43,12 +43,14 @@ frappe.query_reports["Fiscal Year Wise Budget Vs Actual"] = {
 			fieldname: "from_date",
 			label: __("From Date"),
 			fieldtype: "Date",
+			on_change: validate_date_range,
 		},
 		{
 			fieldname: "to_date",
 			label: __("To Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.get_today()
+			default: frappe.datetime.get_today(),
+			on_change: validate_date_range,
 		}
 	],
 
@@ -120,6 +122,17 @@ frappe.query_reports["Fiscal Year Wise Budget Vs Actual"] = {
 		return value;
     }
 };
+
+function validate_date_range(query_report) {
+	let values = query_report.get_values();
+	if (!values.from_date || !values.to_date) {
+		return;
+	}
+	if (frappe.datetime.str_to_obj(values.from_date) > frappe.datetime.str_to_obj(values.to_date)) {
+		frappe.query_report.set_filter_value({ from_date: "" });
+		frappe.throw(__("From Date must be before To Date"));
+	}
+}
 
 function create_show_consolidate_button(report) {
     report.page.add_inner_button(
